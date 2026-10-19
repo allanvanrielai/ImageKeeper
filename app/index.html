@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Image Keeper</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="favicon.ico" sizes="16x16 24x24 32x32 48x48 64x64">
+<link rel="manifest" href="manifest.webmanifest">
+<script>try { var t = localStorage.getItem("imagekeeper-theme"); if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t); } catch (e) { /* storage blocked: follow the system setting */ }</script>
+<style>
+  /* ===== Theme tokens =====
+     Default profile (personal brand), light, on :root. Other profiles override these through a data-profile attribute selector
+     (:root[data-profile="..."]); light/dark is the data-theme attribute or the system setting, as before.
+     Palette: Midnight #253D52, Warm gray #525254, Mist bg #EEF2F7, Muted blue #4880AE, Soft sky #A0C2DB, Mist gray #9A9AA4, Muted Blue Dark #325A7A */
+  :root {
+    --bg: #EEF2F7; --card: #FFFFFF; --field: #FFFFFF; --field-locked: #EEF2F7;
+    --text: #253D52; --muted: #525254; --heading: #253D52;
+    --line: #4880AE; --card-line: transparent;                        /* --line: borders of buttons and fields; --card-line: edge of cards, boxes and the header */
+    --accent: #4880AE; --accent-bg: #EEF2F7; --focus: #4880AE;        /* never used as text colour: rings, drop line, focus */
+    --active-bg: #EEF2F7; --icon: #4880AE;                                                /* the small symbols in the header list */
+    --cta-bg: #253D52; --cta-text: #FFFFFF; --btn-bg: #325A7A; --btn-text: #FFFFFF; --btn-line: #325A7A;
+    --sig: rgba(72, 128, 174, .14);                                   /* the decorative corner circle */
+    --ok: #217a3c; --bad: #c62828;                                    /* page background only (backup line) */
+    --warn: #9a5b00; --warn-bg: #fff4d6; --warn-line: #9a5b00; --err-bg: #fde4e4; --err-line: #c62828;
+    --cardw: 1060px; --idxw: 528px; --texth: 400px; --fs: 14px; --hdr: 76px; --hdr-min: 76px;   /* --hdr = the real header height, set from the page (see below) */
+    --radius-card: 14px; --radius-ctl: 8px; --radius-btn: 8px; --radius-field: 10px; --radius-area: 12px; --radius-line: 2px;
+    --font-ui: Arial, Helvetica, sans-serif; --font-mono: Consolas, "Courier New", monospace;
+    --fw-normal: 400; --fw-strong: 700; --fw-head: 700; --cta-size: 14px; --cta-weight: 400; --h1-size: 18px; --h1-lh: 22px;
+    --logo-w: 190px; --logo-plate: transparent; --logo-plate-pad: 0;      /* only used by a profile that shows a logo */
+    --circle: radial-gradient(circle 220px at calc(100% - 110px) 70px, var(--sig) 219px, transparent 220px);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #253D52; --card: #325A7A; --field: #253D52; --field-locked: #325A7A;
+      --text: #FFFFFF; --muted: #EEF2F7; --heading: #FFFFFF;
+      --line: #A0C2DB; --accent: #A0C2DB; --accent-bg: #253D52; --focus: #A0C2DB; --active-bg: #253D52; --icon: #A0C2DB;
+      --cta-bg: #A0C2DB; --cta-text: #253D52; --btn-bg: #EEF2F7; --btn-text: #253D52; --btn-line: #EEF2F7; --sig: rgba(160, 194, 219, .12);
+      --ok: #6fcf8a; --bad: #ff8a80;
+      --warn: #ffc766; --warn-bg: #3b3317; --warn-line: #ffc766; --err-bg: #3d1d1d; --err-line: #ff9d94;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #253D52; --card: #325A7A; --field: #253D52; --field-locked: #325A7A;
+    --text: #FFFFFF; --muted: #EEF2F7; --heading: #FFFFFF;
+    --line: #A0C2DB; --accent: #A0C2DB; --accent-bg: #253D52; --focus: #A0C2DB; --active-bg: #253D52; --icon: #A0C2DB;
+    --cta-bg: #A0C2DB; --cta-text: #253D52; --btn-bg: #EEF2F7; --btn-text: #253D52; --btn-line: #EEF2F7; --sig: rgba(160, 194, 219, .12);
+    --ok: #6fcf8a; --bad: #ff8a80;
+    --warn: #ffc766; --warn-bg: #3b3317; --warn-line: #ffc766; --err-bg: #3d1d1d; --err-line: #ff9d94;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--circle) fixed, var(--bg); color: var(--text); font: 14px/1.4 var(--font-ui); }
+  :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+  /* ===== Image Keeper layout ===== */
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+  header { flex: none; min-height: var(--hdr-min); background: var(--circle) fixed, var(--bg); padding: 0 16px; display: flex; align-items: center; gap: 12px; }
+  h1 { font-size: var(--h1-size); line-height: var(--h1-lh); margin: 0; font-weight: var(--fw-head); color: var(--heading); }
+  .hright { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+  button { font: inherit; padding: 4px 10px; border: 1px solid var(--line); border-radius: var(--radius-btn); background: transparent; color: var(--text); cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--cta-bg); border-color: var(--cta-bg); color: var(--cta-text); font-size: var(--cta-size); font-weight: var(--cta-weight); }
+  button.btn-save { background: var(--btn-bg); border-color: var(--btn-line); color: var(--btn-text); }
+  #themeBtn { white-space: nowrap; }
+  #profileBox { display: inline-flex; align-items: center; gap: 8px; }
+  #profileBox[hidden] { display: none; }
+  #profileLabel { font-size: 12px; color: var(--muted); font-weight: var(--fw-strong); white-space: nowrap; }
+  .segbtns { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius-btn); }
+  .segbtns button { border: 0; border-radius: 0; padding: 4px 12px; font-weight: var(--fw-strong); white-space: nowrap; }
+  .segbtns button:first-child { border-radius: var(--radius-btn) 0 0 var(--radius-btn); }
+  .segbtns button:last-child { border-radius: 0 var(--radius-btn) var(--radius-btn) 0; }
+  .segbtns button[aria-pressed="true"] { background: var(--btn-bg); color: var(--btn-text); }
+  .segbtns button:hover:not(:disabled):not([aria-pressed="true"]) { background: var(--accent-bg); }
+  .banner { flex: none; margin: 0 16px 10px; padding: 8px 12px; border-radius: var(--radius-ctl); border: 1px solid; display: flex; gap: 12px; align-items: flex-start; white-space: pre-line; }
+  .banner > span { flex: 1; }
+  .banner.warn { background: var(--warn-bg); border-color: var(--warn-line); }
+  .banner.err { background: var(--err-bg); border-color: var(--err-line); }
+  #layout { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(300px, clamp(300px, 32vw, 560px)) minmax(0, 1fr); gap: 16px; padding: 4px 16px 16px; }
+  #side { display: flex; flex-direction: column; gap: 10px; min-height: 0; min-width: 0; }
+  #logoSlot { display: none; flex: none; align-self: flex-start; }
+  .box { background: var(--card); border: 1px solid var(--card-line); border-radius: var(--radius-card); padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 0; min-width: 0; }
+  #side .box { flex: 1; }
+  #q { width: 100%; font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: var(--radius-btn); background: var(--field); color: var(--text); }
+  ::placeholder { color: var(--muted); opacity: 1; }
+  .tools { display: flex; gap: 8px; align-items: center; }
+  .tools #q { flex: 1; min-width: 0; width: auto; }
+  #discardAllBtn { white-space: nowrap; }
+  #sortSel { width: 100%; font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: var(--radius-btn); background: var(--field); color: var(--text); }
+  #confirmAll p { margin: 0 0 6px; } #confirmAll p.lead { font-weight: var(--fw-strong); }
+  #confirmAll form > div:last-child { margin-top: 14px; }
+  #list { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-content: start; align-items: start; }
+  .item { display: flex; flex-direction: column; gap: 4px; padding: 6px; border: 1px solid transparent; border-radius: var(--radius-field); cursor: pointer; min-width: 0; }
+  .item:hover { border-color: var(--line); }
+  .item.active { background: var(--active-bg); border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .item[hidden] { display: none; }
+  .title { width: 100%; min-width: 0; font: inherit; font-weight: var(--fw-strong); padding: 3px 6px; border: 1px solid var(--line); border-radius: var(--radius-field); background: var(--field); color: var(--text); }
+  .thumb { height: 120px; border-radius: 6px; background: var(--field-locked); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .thumb img { max-width: 100%; max-height: 100%; display: block; }
+  .s { font-size: 11px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .badge { color: var(--ok); font-weight: var(--fw-strong); border: 1px solid var(--ok); border-radius: 999px; padding: 0 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .03em; }
+  .nomatch { color: var(--muted); font-size: 12px; padding: 6px 8px; grid-column: 1 / -1; }
+  #preview { min-width: 0; }
+  #phead { flex: none; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+  #phead[hidden] { display: none; }
+  #pinfo { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  #pmeta { font-size: 12px; color: var(--muted); }
+  #pbtns { display: flex; gap: 6px; flex-wrap: wrap; }
+  #stage { flex: 1; min-height: 0; display: flex; border-radius: var(--radius-field); background: var(--field); border: 1px solid var(--line); overflow: hidden; }
+  #stage img { display: block; margin: auto; }
+  #stage.fit img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  #stage.actual { overflow: auto; display: block; }
+  #stage.actual img { margin: 0; max-width: none; max-height: none; }
+  #emptyMsg { margin: auto; color: var(--muted); font-size: 16px; padding: 16px; text-align: center; }
+  #msg { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 30; background: var(--text); color: var(--bg); padding: 6px 14px; border-radius: var(--radius-ctl); font-size: 13px; pointer-events: none; opacity: 0; transition: opacity .2s; max-width: 80vw; }
+  #msg.show { opacity: 1; }
+  body.dragging::after { content: "Drop to add"; position: fixed; inset: 8px; z-index: 40; border: 3px dashed var(--accent); border-radius: var(--radius-card); background: rgba(128,128,128,.12); display: flex; align-items: center; justify-content: center; font-size: 22px; color: var(--text); pointer-events: none; }
+  dialog { background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 16px 18px; max-width: 420px; }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  dialog p { margin: 0 0 14px; }
+  dialog .pbtns { display: flex; gap: 8px; justify-content: flex-end; }
+  @media (max-width: 820px) { #layout { grid-template-columns: minmax(0, 1fr); grid-auto-rows: minmax(300px, 1fr); } }
+</style>
+<!-- Optional profile file. Blocking on purpose: when present it adds its look before the first paint. When it is absent this request fails (one 404 line in the server log and the console, nothing else) and the app runs in Default. -->
+<script src="mint-profile.js" onerror="window.__mintMissing = true"></script>
+<script>
+// ===== <profile-logic> (no DOM access; unit-tested by Testing/profiles-phase3-unit.mjs) =====
+const PROFILE_KEY = "imagekeeper-profile";
+// stored = what localStorage holds ("mint", "default", anything else, or null); mintAvailable = mint-profile.js loaded.
+// A stored "mint" is kept (not rewritten) when the file is missing: the Default look is shown and fellBack says so.
+function resolveProfile(stored, mintAvailable) {
+  if (stored === "mint") return mintAvailable ? { profile: "mint", fellBack: false } : { profile: "default", fellBack: true };
+  return { profile: "default", fellBack: false };
+}
+function themeLabel(isDark) {
+  return isDark ? { text: "\u2600 Light", title: "Switch to light mode" } : { text: "\u263E Dark", title: "Switch to dark mode" };
+}
+// ===== </profile-logic> =====
+(function () {
+  var stored = null; try { stored = localStorage.getItem(PROFILE_KEY); } catch (e) { /* storage blocked: Default */ }
+  var r = resolveProfile(stored, !!window.NoteTakerMint);
+  window.__profileState = { stored: stored, resolved: r.profile, fellBack: r.fellBack, available: !!window.NoteTakerMint };
+  if (r.profile === "mint") document.documentElement.setAttribute("data-profile", "mint");
+})();
+</script>
+</head>
+<body>
+<header>
+  <h1>Image Keeper</h1>
+  <div class="hright">
+    <div id="profileBox" hidden>
+      <span id="profileLabel">Profile</span>
+      <div class="segbtns" role="group" aria-label="Profile">
+        <button type="button" data-profile="default" aria-pressed="true">Default</button>
+        <button type="button" data-profile="mint" aria-pressed="false">Mint</button>
+      </div>
+    </div>
+    <button id="themeBtn" type="button">Dark</button>
+  </div>
+</header>
+<div id="banners"></div>
+<div id="layout">
+  <aside id="side">
+    <span id="logoSlot"></span>
+    <div class="box">
+      <div class="tools">
+        <input id="q" type="search" placeholder="Search titles" aria-label="Search titles" autocomplete="off">
+        <button id="discardAllBtn" type="button" title="Discard every image in the tray" disabled>Discard All</button>
+      </div>
+      <select id="sortSel" aria-label="Sort by">
+        <option value="date-desc">Date: newest first</option>
+        <option value="date-asc">Date: oldest first</option>
+        <option value="title-asc">Title: A–Z</option>
+        <option value="title-desc">Title: Z–A</option>
+      </select>
+      <div id="list" role="listbox" aria-label="Images"></div>
+    </div>
+  </aside>
+  <main id="preview" class="box">
+    <div id="phead" hidden>
+      <div id="pinfo">
+        <input id="ptitle" class="title" aria-label="Title" autocomplete="off">
+        <div id="pmeta"></div>
+      </div>
+      <div id="pbtns">
+        <button id="fitBtn" type="button" title="Toggle between fit-to-pane and 100% size">100%</button>
+        <button id="saveBtn" type="button" class="btn-save">Save…</button>
+        <button id="discardBtn" type="button">Discard</button>
+      </div>
+    </div>
+    <div id="stage" class="fit"><div id="emptyMsg">Paste (Ctrl+V) or drop an image</div></div>
+  </main>
+</div>
+<div id="msg" role="status" aria-live="polite"></div>
+<dialog id="confirm"><form method="dialog">
+  <p id="confirmMsg"></p>
+  <div class="pbtns"><button value="cancel" type="submit">Keep it</button><button value="ok" type="submit" class="primary">Discard</button></div>
+</form></dialog>
+<dialog id="confirmAll"><form method="dialog">
+  <p id="caTitle" class="lead"></p>
+  <p id="caSaved"></p>
+  <p id="caHidden" hidden></p>
+  <div class="pbtns"><button id="caCancel" value="cancel" type="submit" autofocus>Cancel</button><button id="caOk" value="ok" type="submit" class="primary"></button></div>
+</form></dialog>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+
+// ---------- storage (IndexedDB: database "imagekeeper", store "items") ----------
+// item = { id, title, blob, thumb (small webp blob or null), type, width, height, added (ms), saved }
+const DB_NAME = "imagekeeper", STORE = "items";
+let db = null, dbBroken = false;
+function openDb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(DB_NAME, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore(STORE, { keyPath: "id" });
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+function tx(mode, fn) {
+  return new Promise((res, rej) => {
+    const t = db.transaction(STORE, mode); const out = fn(t.objectStore(STORE));
+    t.oncomplete = () => res(out && out.result); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error);
+  });
+}
+const dbAll = () => tx("readonly", (s) => s.getAll());
+const dbPut = (it) => tx("readwrite", (s) => s.put(it));
+const dbDelete = (id) => tx("readwrite", (s) => s.delete(id));
+const dbClear = () => tx("readwrite", (s) => s.clear());
+const errStr = (e) => (e && (e.message || e.name)) || String(e);
+
+// ---------- state ----------
+const items = new Map();              // id -> item
+const rows = new Map();               // id -> list element
+const thumbUrls = new Map();          // id -> object URL of the thumbnail
+let selectedId = null, query = "", fit = true, previewUrl = null, lastAdded = 0, busy = false;
+const SORT_KEY = "imagekeeper-sort", SORT_MODES = ["date-desc", "date-asc", "title-asc", "title-desc"];
+let sortMode = "date-desc";
+try { const v = localStorage.getItem(SORT_KEY); if (SORT_MODES.includes(v)) sortMode = v; } catch (e) { /* storage blocked: default order */ }
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });     // case-insensitive, "shot 2" before "shot 10"
+function compareItems(a, b) {
+  switch (sortMode) {
+    case "date-asc": return a.added - b.added;
+    case "title-asc": return collator.compare(a.title, b.title) || b.added - a.added;
+    case "title-desc": return collator.compare(b.title, a.title) || b.added - a.added;
+    default: return b.added - a.added;
+  }
+}
+const sorted = () => [...items.values()].sort(compareItems);
+const fmtDate = (ms) => new Date(ms).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+const fmtSize = (n) => n < 1024 * 1024 ? Math.max(1, Math.round(n / 1024)) + " KB" : (n / 1024 / 1024).toFixed(1) + " MB";
+const EXT = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/bmp": "bmp", "image/svg+xml": "svg", "image/avif": "avif", "image/x-icon": "ico", "image/tiff": "tif" };
+const MIME_BY_EXT = Object.fromEntries(Object.entries(EXT).map(([m, e]) => [e, m])); MIME_BY_EXT.jpeg = "image/jpeg"; MIME_BY_EXT.jfif = "image/jpeg";
+const extOf = (type) => EXT[type] || (type.split("/")[1] || "img").replace(/\+.*/, "");
+const typeLabel = (type) => extOf(type).toUpperCase();
+
+// ---------- messages ----------
+let msgTimer = 0;
+function toast(text) {
+  const m = $("msg"); m.textContent = text; m.classList.add("show");
+  clearTimeout(msgTimer); msgTimer = setTimeout(() => m.classList.remove("show"), 3200);
+}
+function banner(kind, text) {
+  const d = document.createElement("div"); d.className = "banner " + kind;
+  const s = document.createElement("span"); s.textContent = text;
+  const x = document.createElement("button"); x.type = "button"; x.textContent = "×"; x.setAttribute("aria-label", "Dismiss"); x.onclick = () => d.remove();
+  d.append(s, x); $("banners").append(d);
+}
+
+// ---------- adding images ----------
+// Title for a dropped file: its name without the last extension ("report.v2.png" -> "report.v2"); a name with nothing left stays "Untitled".
+function titleFromFileName(name) {
+  const i = name.lastIndexOf(".");
+  const base = i > 0 ? name.slice(0, i) : (i === 0 ? "" : name);
+  return base.trim() || "Untitled";
+}
+function isTextField(el) {
+  return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
+}
+// A file counts as an image by its type, or (when the type is empty, as for some dropped files) by its extension.
+function asImage(f) {
+  if (f.type && f.type.startsWith("image/")) return f;
+  if (!f.type) { const e = (f.name.split(".").pop() || "").toLowerCase(); if (MIME_BY_EXT[e]) return new File([f], f.name, { type: MIME_BY_EXT[e] }); }
+  return null;
+}
+function loadImage(blob) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(blob), img = new Image();
+    img.onload = () => res({ img, url }); img.onerror = () => { URL.revokeObjectURL(url); rej(new Error("not a readable image")); };
+    img.src = url;
+  });
+}
+async function makeThumb(img) {
+  try {
+    const w = img.naturalWidth, h = img.naturalHeight, k = Math.min(1, 480 / Math.max(w, h));
+    const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    return await new Promise((r) => c.toBlob(r, "image/webp", 0.85));
+  } catch (e) { return null; }
+}
+async function addFiles(files, titleFromName) {
+  let added = 0, bad = 0;
+  for (const f of files) {
+    try {
+      const { img, url } = await loadImage(f);
+      const thumb = await makeThumb(img);
+      const width = img.naturalWidth, height = img.naturalHeight; URL.revokeObjectURL(url);
+      lastAdded = Math.max(Date.now(), lastAdded + 1);
+      const it = { id: (crypto.randomUUID ? crypto.randomUUID() : String(lastAdded) + Math.random()), title: titleFromName && f.name ? titleFromFileName(f.name) : "Untitled", blob: f, thumb, type: f.type, width, height, added: lastAdded, saved: false };
+      items.set(it.id, it);
+      if (!dbBroken) { try { await dbPut(it); } catch (e) { dbBroken = true; banner("err", "Could not store the image in the browser (" + errStr(e) + "). It is shown, but will be lost on restart."); } }
+      added++; if (query) { query = ""; $("q").value = ""; }       // a successful add clears the search first, so the new item is not hidden
+      buildRows(); select(it.id, true);
+    } catch (e) { bad++; }
+  }
+  if (bad) toast(bad === 1 && !added ? "That file could not be read as an image – nothing added" : bad + " file(s) could not be read as images");
+}
+document.addEventListener("paste", (e) => {
+  if (isTextField(e.target) || isTextField(document.activeElement)) return;       // text field: normal text paste, no image
+  e.preventDefault();
+  const files = [];
+  for (const it of e.clipboardData.items) if (it.kind === "file") { const f = it.getAsFile(), im = f && asImage(f); if (im) files.push(im); }
+  if (!files.length) { toast("Clipboard has no image – nothing added"); return; }
+  addFiles(files, false);
+});
+// Whole-window drag and drop; preventDefault on dragover/drop is what stops Chrome opening a dropped file.
+let dragDepth = 0;
+const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes("Files");
+window.addEventListener("dragenter", (e) => { e.preventDefault(); if (hasFiles(e)) { dragDepth++; document.body.classList.add("dragging"); } });
+window.addEventListener("dragover", (e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"; });
+window.addEventListener("dragleave", (e) => { if (hasFiles(e) && --dragDepth <= 0) { dragDepth = 0; document.body.classList.remove("dragging"); } });
+window.addEventListener("drop", (e) => {
+  e.preventDefault(); dragDepth = 0; document.body.classList.remove("dragging");
+  const files = [...(e.dataTransfer ? e.dataTransfer.files : [])].map(asImage).filter(Boolean);
+  if (!files.length) { toast("That is not an image – nothing added"); return; }
+  addFiles(files, true);
+});
+
+// ---------- list ----------
+function buildRows() {
+  const list = $("list");
+  rows.forEach((r) => r.remove()); rows.clear();
+  thumbUrls.forEach((u, id) => { if (!items.has(id)) { URL.revokeObjectURL(u); thumbUrls.delete(id); } });
+  for (const it of sorted()) {
+    const li = document.createElement("div"); li.className = "item"; li.dataset.id = it.id; li.tabIndex = 0; li.setAttribute("role", "option");
+    const t = document.createElement("input"); t.className = "title"; t.value = it.title; t.setAttribute("aria-label", "Title"); t.autocomplete = "off";
+    const th = document.createElement("div"); th.className = "thumb";
+    const im = document.createElement("img"); im.alt = ""; im.draggable = false;
+    if (!thumbUrls.has(it.id)) thumbUrls.set(it.id, URL.createObjectURL(it.thumb || it.blob));
+    im.src = thumbUrls.get(it.id); th.append(im);
+    const s = document.createElement("div"); s.className = "s";
+    const when = document.createElement("span"); when.textContent = fmtDate(it.added); s.append(when);
+    if (it.saved) s.append(savedBadge());
+    li.append(t, th, s);
+    li.addEventListener("click", () => select(it.id));
+    li.addEventListener("keydown", (e) => { if (e.target === li && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); select(it.id); } });
+    t.addEventListener("input", () => titleEdited(it, t.value, t));
+    t.addEventListener("blur", () => titleDone(it));
+    t.addEventListener("keydown", (e) => { if (e.key === "Enter") t.blur(); });
+    rows.set(it.id, li); list.append(li);
+  }
+  applyFilter(); markActive(); refreshButtons();
+}
+function savedBadge() { const b = document.createElement("span"); b.className = "badge"; b.textContent = "saved"; return b; }
+function applyFilter() {
+  const q = query.trim().toLowerCase(); let shown = 0;
+  rows.forEach((li, id) => { const ok = !q || items.get(id).title.toLowerCase().includes(q); li.hidden = !ok; if (ok) shown++; });
+  let nm = $("list").querySelector(".nomatch");
+  if (!shown && items.size) { if (!nm) { nm = document.createElement("div"); nm.className = "nomatch"; nm.textContent = "No images match."; $("list").append(nm); } } else if (nm) nm.remove();
+}
+function markActive() { rows.forEach((li, id) => { li.classList.toggle("active", id === selectedId); li.setAttribute("aria-selected", String(id === selectedId)); }); }
+function refreshSavedBadge(it) {
+  const li = rows.get(it.id); if (!li) return; const s = li.querySelector(".s"), b = s.querySelector(".badge");
+  if (it.saved && !b) s.append(savedBadge()); else if (!it.saved && b) b.remove();
+}
+$("q").addEventListener("input", (e) => { query = e.target.value; applyFilter(); });
+
+// Moves the existing rows into the current order (no rebuild, so a click on another row that caused the blur still lands). True if anything moved.
+function reorderRows() {
+  const list = $("list"), order = sorted().map((x) => rows.get(x.id)).filter(Boolean), cur = [...list.querySelectorAll(".item")];
+  if (order.every((li, i) => li === cur[i])) return false;
+  const nm = list.querySelector(".nomatch"); order.forEach((li) => list.insertBefore(li, nm));
+  return true;
+}
+$("sortSel").value = sortMode;
+$("sortSel").addEventListener("change", (e) => {
+  sortMode = SORT_MODES.includes(e.target.value) ? e.target.value : "date-desc";
+  try { localStorage.setItem(SORT_KEY, sortMode); } catch (err) { /* storage blocked: lasts until the page is closed */ }
+  reorderRows(); if (selectedId) select(selectedId, true);
+});
+
+// ---------- titles ----------
+const saveTimers = new Map();
+function titleEdited(it, value, source) {
+  it.title = value;
+  const li = rows.get(it.id); if (li && source !== li.querySelector(".title")) li.querySelector(".title").value = value;
+  if (source !== $("ptitle") && it.id === selectedId) $("ptitle").value = value;
+  clearTimeout(saveTimers.get(it.id)); saveTimers.set(it.id, setTimeout(() => persist(it), 400));
+}
+function titleDone(it) {
+  if (!items.has(it.id)) return;
+  if (!it.title.trim()) { it.title = "Untitled"; const li = rows.get(it.id); if (li) li.querySelector(".title").value = "Untitled"; if (it.id === selectedId) $("ptitle").value = "Untitled"; }
+  clearTimeout(saveTimers.get(it.id)); persist(it);
+  if (sortMode.startsWith("title")) resortAfterEdit(it);          // re-sort once editing ends, not per keystroke
+}
+// If the edit ended because the user pressed the mouse on another row, wait for the button to come up first: moving rows
+// between mouse-down and mouse-up would make the browser drop that click.
+let pointerDown = false;
+document.addEventListener("pointerdown", () => { pointerDown = true; }, true);
+document.addEventListener("pointerup", () => { pointerDown = false; }, true);
+document.addEventListener("pointercancel", () => { pointerDown = false; }, true);
+function resortAfterEdit(it) {
+  const run = () => { if (items.has(it.id) && reorderRows() && it.id === selectedId) select(it.id, true); };
+  if (pointerDown) document.addEventListener("pointerup", () => setTimeout(run, 0), { once: true, capture: true }); else run();
+}
+async function persist(it) {
+  if (dbBroken || !items.has(it.id)) return;
+  try { await dbPut(it); } catch (e) { dbBroken = true; banner("err", "Could not store changes in the browser (" + errStr(e) + ")."); }
+}
+$("ptitle").addEventListener("input", (e) => { const it = items.get(selectedId); if (it) titleEdited(it, e.target.value, e.target); });
+$("ptitle").addEventListener("blur", () => { const it = items.get(selectedId); if (it) titleDone(it); });
+$("ptitle").addEventListener("keydown", (e) => { if (e.key === "Enter") e.target.blur(); });
+
+// ---------- preview ----------
+function select(id, scroll) {
+  selectedId = id; markActive(); renderPreview();
+  if (scroll) { const li = rows.get(id); if (li) li.scrollIntoView({ block: "nearest" }); }
+}
+function renderPreview() {
+  const it = items.get(selectedId), stage = $("stage");
+  if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
+  stage.replaceChildren();
+  if (!it) {
+    $("phead").hidden = true;
+    const m = document.createElement("div"); m.id = "emptyMsg"; m.textContent = "Paste (Ctrl+V) or drop an image"; stage.append(m); return;
+  }
+  $("phead").hidden = false;
+  if (document.activeElement !== $("ptitle")) $("ptitle").value = it.title;
+  $("pmeta").textContent = fmtDate(it.added) + "  ·  " + typeLabel(it.type) + "  ·  " + it.width + " × " + it.height + "  ·  " + fmtSize(it.blob.size) + (it.saved ? "  ·  saved" : "");
+  previewUrl = URL.createObjectURL(it.blob);
+  const im = document.createElement("img"); im.src = previewUrl; im.alt = it.title; im.draggable = false; stage.append(im);
+  applyFit(); refreshButtons();
+}
+function applyFit() { $("stage").className = fit ? "fit" : "actual"; $("fitBtn").textContent = fit ? "100%" : "Fit"; $("fitBtn").title = fit ? "Show at 100% size (scrolls)" : "Fit to pane"; }
+$("fitBtn").addEventListener("click", () => { fit = !fit; applyFit(); });
+function refreshButtons() { $("saveBtn").disabled = busy; $("discardBtn").disabled = busy; $("discardAllBtn").disabled = busy || !items.size; }
+
+// ---------- save ----------
+function stamp(ms) { const d = new Date(ms), p = (n) => String(n).padStart(2, "0"); return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + "_" + p(d.getHours()) + p(d.getMinutes()); }
+function suggestedName(it) {
+  // Invalid characters become "_"; a run of spaces/underscores that holds at least one "_" collapses to a single "_" (plain runs of spaces stay);
+  // "_" and spaces are trimmed from both ends, and trailing dots too (Windows does not allow them). Only the file name changes, never the title.
+  const t = (it.title || "Untitled").replace(/[<>:"\/\\|?*\x00-\x1f]/g, "_").replace(/[ _]*_[ _]*/g, "_")
+    .replace(/^[_ ]+/, "").replace(/[. _]+$/, "").slice(0, 80).replace(/[. _]+$/, "") || "Untitled";
+  return t + " " + stamp(it.added) + "." + extOf(it.type);
+}
+async function saveSelected() {
+  const it = items.get(selectedId); if (!it || busy) return;
+  if (!window.showSaveFilePicker) { banner("err", "This browser has no Save dialog (showSaveFilePicker). Use Chrome."); return; }
+  busy = true; refreshButtons();
+  try {
+    let handle;
+    try {
+      const opts = { id: "imagekeeper", suggestedName: suggestedName(it) };
+      if (it.type) opts.types = [{ description: typeLabel(it.type) + " image", accept: { [it.type]: ["." + extOf(it.type)] } }];
+      handle = await showSaveFilePicker(opts);
+    } catch (e) {
+      if (e && e.name === "AbortError") return;                  // cancelled: change nothing
+      banner("err", "Could not open the Save dialog (" + errStr(e) + ")."); return;
+    }
+    try { const w = await handle.createWritable(); await w.write(it.blob); await w.close(); }
+    catch (e) { banner("err", "The file was not written (" + errStr(e) + "). The image is not marked as saved."); return; }
+    if (!items.has(it.id)) return;                               // discarded while the dialog was open
+    it.saved = true; refreshSavedBadge(it); await persist(it);
+    if (it.id === selectedId) renderPreview();
+    toast("Saved as " + handle.name);
+  } finally { busy = false; refreshButtons(); }
+}
+$("saveBtn").addEventListener("click", saveSelected);
+
+// ---------- discard ----------
+function confirmDiscard(title) {
+  const d = $("confirm"); $("confirmMsg").textContent = "Discard “" + title + "”? It has not been saved, so it will be gone for good.";
+  return new Promise((res) => { d.addEventListener("close", () => res(d.returnValue === "ok"), { once: true }); d.returnValue = "cancel"; d.showModal(); });
+}
+async function discardSelected() {
+  const it = items.get(selectedId); if (!it || busy) return;
+  if (!it.saved && !(await confirmDiscard(it.title))) return;
+  const vis = sorted().filter((x) => rows.get(x.id) && !rows.get(x.id).hidden), i = vis.findIndex((x) => x.id === it.id);
+  const next = vis[i + 1] || vis[i - 1] || null;
+  try { if (!dbBroken) await dbDelete(it.id); }
+  catch (e) { banner("err", "Could not delete the image from browser storage (" + errStr(e) + "). It was not discarded."); return; }
+  items.delete(it.id); clearTimeout(saveTimers.get(it.id));
+  buildRows(); select(next ? next.id : null);
+}
+$("discardBtn").addEventListener("click", discardSelected);
+
+// Discard All: always every item (saved or not, whatever the search shows), always confirmed first; Cancel has the focus.
+function confirmDiscardAll(total, unsaved, hidden) {
+  const d = $("confirmAll");
+  $("caTitle").textContent = total === 1 ? "Discard 1 image?" : "Discard all " + total + " images?";
+  $("caSaved").textContent = unsaved ? (unsaved === 1 ? "1 is not saved" : unsaved + " are not saved") + " and will be gone for good." : "All are saved.";
+  $("caHidden").hidden = !hidden; $("caHidden").textContent = hidden ? "Including " + hidden + " hidden by the current search." : "";
+  $("caOk").textContent = total === 1 ? "Discard 1 image" : "Discard all " + total;
+  return new Promise((res) => { d.addEventListener("close", () => res(d.returnValue === "ok"), { once: true }); d.returnValue = "cancel"; d.showModal(); $("caCancel").focus(); });
+}
+async function discardAll() {
+  if (!items.size || busy) return;
+  const all = [...items.values()], unsaved = all.filter((x) => !x.saved).length;
+  let hidden = 0; rows.forEach((li) => { if (li.hidden) hidden++; });
+  if (!(await confirmDiscardAll(all.length, unsaved, hidden))) return;
+  try { if (!dbBroken) await dbClear(); }
+  catch (e) { banner("err", "Could not delete the images from browser storage (" + errStr(e) + "). Nothing was discarded."); return; }
+  saveTimers.forEach((t) => clearTimeout(t)); saveTimers.clear();
+  items.clear(); selectedId = null; query = ""; $("q").value = "";
+  buildRows(); renderPreview();
+  toast("Discarded " + all.length + (all.length === 1 ? " image" : " images"));
+}
+$("discardAllBtn").addEventListener("click", discardAll);
+
+// ---------- light / dark mode ----------
+function currentTheme() {
+  const t = document.documentElement.getAttribute("data-theme");
+  if (t === "dark" || t === "light") return t;
+  return window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+function refreshThemeButton() {
+  const l = themeLabel(currentTheme() === "dark"), b = $("themeBtn");
+  b.textContent = l.text; b.title = l.title; b.setAttribute("aria-label", l.title);
+}
+$("themeBtn").addEventListener("click", () => {
+  const next = currentTheme() === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  try { localStorage.setItem("imagekeeper-theme", next); } catch (e) { /* storage blocked: lasts until the page is closed */ }
+  refreshThemeButton();
+});
+if (window.matchMedia) { const mq = matchMedia("(prefers-color-scheme: dark)"); (mq.addEventListener ? mq.addEventListener("change", refreshThemeButton) : mq.addListener(refreshThemeButton)); }
+refreshThemeButton();
+
+// ---------- profile (Default | Mint) ----------
+function currentProfile() { return document.documentElement.getAttribute("data-profile") === "mint" ? "mint" : "default"; }
+function refreshProfileControl() {
+  const box = $("profileBox"), on = currentProfile();
+  box.hidden = !window.NoteTakerMint;
+  box.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.profile === on)));
+}
+function applyProfile(p) {
+  if (p === "mint" && window.NoteTakerMint) document.documentElement.setAttribute("data-profile", "mint"); else document.documentElement.removeAttribute("data-profile");
+  try { localStorage.setItem(PROFILE_KEY, currentProfile()); } catch (e) { /* storage blocked */ }
+  refreshProfileControl();
+}
+$("profileBox").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => applyProfile(b.dataset.profile)));
+refreshProfileControl();
+
+// ---------- start-up ----------
+(async function init() {
+  try {
+    db = await openDb();
+    (await dbAll()).forEach((it) => { items.set(it.id, it); lastAdded = Math.max(lastAdded, it.added); });
+  } catch (e) { dbBroken = true; banner("err", "Browser storage is unavailable (" + errStr(e) + "). Images can be added, but nothing is kept."); }
+  buildRows(); renderPreview();
+  if (window.__profileState && window.__profileState.fellBack) banner("warn", "The Mint profile file (mint-profile.js) was not found, so the Default look is shown. Your Mint choice is kept and applies again when the file is back.");
+  if (navigator.storage && navigator.storage.persist) { try { await navigator.storage.persist(); } catch (e) { /* best effort */ } }
+  if (navigator.locks) navigator.locks.request("imagekeeper-instance", { ifAvailable: true }, (lock) => {
+    if (!lock) { banner("warn", "Image Keeper is already open in another tab or window. Close one of them: they do not see each other's changes."); return; }
+    return new Promise(() => {});
+  });
+})();
+</script>
+</body></html>

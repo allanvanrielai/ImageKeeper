@@ -1,0 +1,28 @@
+# OS clutter
+Thumbs.db
+ehthumbs.db
+desktop.ini
+.DS_Store
+
+# Editor clutter
+.vscode/
+.idea/
+*.swp
+*~
+
+# Logs
+*.log
+
+# Test and scratch output
+Testing/
+scratch/
+tmp/
+*.tmp
+*.bak
+*.bak_*
+
+# Machine-specific shortcut (absolute paths); kept locally only
+Launcher/Image Keeper.lnk
+
+# Dumping place, not backed up to GitHub
+Documentation/Temporary (Not backed up to GitHub)/
