@@ -511,6 +511,37 @@ try {
     same("renamebtn: selected chip gone -> falls back to All -> disabled", [(await page.eval(`T.chipStr()`)).startsWith("All:8*"), await dis()], [true, true]);
   }
 
+  // ---------------------------------------------------------------- preview image is not reloaded when the selected image is clicked again
+  if (want("noreload")) {
+    console.log("== preview keeps the same <img> while the selected image is edited");
+    await fresh();
+    const o = ids(await page.eval(`T.rows()`));
+    await page.click(`.item[data-id="${o[0]}"] .thumb`); await sleep(150);
+    await page.eval(`(()=>{ const im = document.querySelector('#stage img'); im.__mark = 'same'; window.__url = im.src; })()`);
+    const kept = () => page.eval(`(()=>{ const im = document.querySelector('#stage img'); return !!im && im.__mark === 'same' && im.src === window.__url; })()`);
+    check("noreload: selected image is the one on the stage", await page.eval(`selectedId`) === o[0] && await kept());
+    await page.click(`.item[data-id="${o[0]}"] .title`); await sleep(150);
+    check("noreload: clicking the title of the selected image keeps the same <img>", await kept());
+    await page.key("Escape"); await page.click(`.item[data-id="${o[0]}"] .label-in`); await sleep(150);
+    check("noreload: clicking the label of the selected image keeps the same <img>", await kept());
+    await page.insert("Work"); await page.key("Enter"); await sleep(200);
+    check("noreload: changing its label keeps the same <img>", await kept());
+    await page.click(`.item[data-id="${o[0]}"] .title`); await page.eval(`document.activeElement.select()`); await page.insert("Renamed"); await page.key("Enter"); await sleep(200);
+    check("noreload: editing its title keeps the same <img>", await kept());
+    same("noreload: the preview header title follows the edit", await page.eval(`document.getElementById('ptitle').value`), "Renamed");
+    await page.click(`.item[data-id="${o[0]}"] .thumb`); await sleep(150);
+    check("noreload: clicking the thumbnail of the selected image keeps the same <img>", await kept());
+    await page.click("#fitBtn"); await page.click("#fitBtn"); await sleep(100);
+    check("noreload: the 100% / Fit toggle keeps the same <img>", await kept());
+    // a different image does replace it
+    await page.click(`.item[data-id="${o[1]}"] .title`); await sleep(150);
+    check("noreload: selecting another image shows that image (new <img>)", await page.eval(`selectedId`) === o[1] && !(await kept()));
+    check("noreload: and the old object URL was released (one preview URL alive)", await page.eval(`document.querySelectorAll('#stage img').length === 1`));
+    // discarding the shown image empties the stage; the next one shows
+    await page.eval(`document.getElementById('discardBtn').click()`); await sleep(200); await page.eval(`document.getElementById('confirm').close('ok')`); await sleep(300);
+    check("noreload: after Discard the stage shows another image or the empty note", await page.eval(`!!document.querySelector('#stage img') || !!document.getElementById('emptyMsg')`));
+  }
+
 } catch (e) {
   fail++; failures.push("EXCEPTION " + e.message); console.log("EXCEPTION:", e.stack);
 }

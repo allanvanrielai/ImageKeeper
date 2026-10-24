@@ -713,18 +713,22 @@ function select(id, scroll) {
   selectedId = id; markActive(); renderPreview();
   if (scroll) { const li = rows.get(id); if (li) li.scrollIntoView({ block: "nearest" }); }
 }
+let shownId = null;                   // the image the stage is showing; selecting it again keeps the same <img> (no reload, no flicker)
 function renderPreview() {
   const it = items.get(selectedId), stage = $("stage");
-  if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
-  stage.replaceChildren();
   if (!it) {
-    $("phead").hidden = true;
+    if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
+    shownId = null; stage.replaceChildren(); $("phead").hidden = true;
     const m = document.createElement("div"); m.id = "emptyMsg"; m.textContent = "Paste (Ctrl+V) or drop an image"; stage.append(m); return;
   }
   $("phead").hidden = false;
   if (document.activeElement !== $("ptitle")) $("ptitle").value = it.title;
   $("pmeta").textContent = fmtDate(it.added) + "  ·  " + typeLabel(it.type) + "  ·  " + it.width + " × " + it.height + "  ·  " + fmtSize(it.blob.size) + (it.saved ? "  ·  saved" : "");
-  previewUrl = URL.createObjectURL(it.blob);
+  const shown = stage.querySelector("img");
+  if (shown && shownId === it.id && previewUrl) { shown.alt = it.title; applyFit(); refreshButtons(); return; }
+  if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
+  stage.replaceChildren();
+  previewUrl = URL.createObjectURL(it.blob); shownId = it.id;
   const im = document.createElement("img"); im.src = previewUrl; im.alt = it.title; im.draggable = false; stage.append(im);
   applyFit(); refreshButtons();
 }
