@@ -50,6 +50,11 @@
     --warn: #ffc766; --warn-bg: #3b3317; --warn-line: #ffc766; --err-bg: #3d1d1d; --err-line: #ff9d94;
     color-scheme: dark;
   }
+  /* Image Keeper-only tokens: the preview stage and the thumbnail wells. They follow --field and --field-locked everywhere except Mint dark, where the
+     approved option C uses a neutral grey for both. They live here, not in mint-profile.js, so that file stays identical to NoteTaker's. */
+  :root { --stage: var(--field); --thumb: var(--field-locked); }
+  @media (prefers-color-scheme: dark) { :root[data-profile="mint"]:not([data-theme="light"]) { --stage: #1C1C1C; --thumb: #1C1C1C; } }
+  :root[data-profile="mint"][data-theme="dark"] { --stage: #1C1C1C; --thumb: #1C1C1C; }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--circle) fixed, var(--bg); color: var(--text); font: 14px/1.4 var(--font-ui); }
   :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
@@ -121,7 +126,7 @@
   .item.active { background: var(--active-bg); border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .item[hidden] { display: none; }
   .title { width: 100%; min-width: 0; font: inherit; font-weight: var(--fw-strong); padding: 3px 6px; border: 1px solid var(--line); border-radius: var(--radius-field); background: var(--field); color: var(--text); }
-  .thumb { height: 120px; border-radius: 6px; background: var(--field-locked); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .thumb { height: 120px; border-radius: 6px; background: var(--thumb); display: flex; align-items: center; justify-content: center; overflow: hidden; }
   .thumb img { max-width: 100%; max-height: 100%; display: block; }
   .s { font-size: 11px; color: var(--muted); display: flex; gap: 8px; flex-wrap: nowrap; align-items: center; min-width: 0; }
   .badge { flex: none; color: var(--ok); font-weight: var(--fw-strong); border: 1px solid var(--ok); border-radius: 999px; padding: 0 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .03em; }
@@ -132,7 +137,7 @@
   #pinfo { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   #pmeta { font-size: 12px; color: var(--muted); }
   #pbtns { display: flex; gap: 6px; flex-wrap: wrap; }
-  #stage { flex: 1; min-height: 0; display: flex; border-radius: var(--radius-field); background: var(--field); border: 1px solid var(--line); overflow: hidden; }
+  #stage { flex: 1; min-height: 0; display: flex; border-radius: var(--radius-field); background: var(--stage); border: 1px solid var(--line); overflow: hidden; }
   #stage img { display: block; margin: auto; }
   #stage.fit img { max-width: 100%; max-height: 100%; object-fit: contain; }
   #stage.actual { overflow: auto; display: block; }

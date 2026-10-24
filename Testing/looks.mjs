@@ -71,6 +71,14 @@ for (const [profile, theme] of looks) {
     const rn = M.q('#renameBtn'); M.text('Rename label button text', rn); M.border('Rename label button border', rn);
     M.ring('focus ring vs surroundings (label field)', lin); M.ring('focus ring vs surroundings (chip)', act); M.ring('focus ring vs surroundings (inactive chip)', inact); M.ring('focus ring vs surroundings (Rename button)', rn);
   `);
+  // header (Mint dark: the Mint blue band): text and borders against what is behind them
+  await run(`
+    M.text('header title', M.q('h1')); M.text('header Profile label', M.q('#profileLabel'));
+    const segOff = M.q('.segbtns button[aria-pressed=false]'), segOn = M.q('.segbtns button[aria-pressed=true]');
+    M.text('header segment (inactive) text', segOff); M.text('header segment (active) text', segOn);
+    M.border('header segment group border', M.q('.segbtns')); M.fill('header active segment fill vs band', segOn);
+    M.text('header theme button text', M.q('#themeBtn')); M.border('header theme button border', M.q('#themeBtn'));
+  `);
   // --- state B: popup open, one highlighted
   await page.click("#list .item .label-in"); await page.key("ArrowDown"); await sleep(150);
   await page.shot(path.join(outDir, `${tag}-2-suggestions.png`));
