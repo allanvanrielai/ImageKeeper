@@ -91,6 +91,30 @@
   #sortSel { width: 100%; font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: var(--radius-btn); background: var(--field); color: var(--text); }
   #confirmAll p { margin: 0 0 6px; } #confirmAll p.lead { font-weight: var(--fw-strong); }
   #confirmAll form > div:last-child { margin-top: 14px; }
+  /* labels: filter chips, the rename/sort row, the per-image label field and its suggestion list. Theme tokens only. */
+  #chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 28vh; overflow-y: auto; padding: 5px; margin: -5px; }      /* the padding keeps the focus ring of an edge chip from being clipped */
+  .chip { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; padding: 2px 10px; font-size: 13px; line-height: 1.5; }
+  .chip .cn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip .cc { font-weight: var(--fw-normal); flex: none; }
+  .chip[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--bg); font-weight: var(--fw-strong); }
+  .chip[aria-pressed="true"] .cc { font-weight: var(--fw-strong); }
+  .chip[aria-pressed="true"] .cn::before { content: "\2713\00a0"; }
+  .tools2 { display: flex; gap: 8px; align-items: center; }
+  .tools2 #sortSel { flex: 1; min-width: 0; width: auto; }
+  #renameBtn { white-space: nowrap; }
+  #renameDlg input { width: 100%; font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: var(--radius-btn); background: var(--field); color: var(--text); }
+  #renameDlg p.lead { margin: 0 0 8px; font-weight: var(--fw-strong); }
+  #renameDlg p.err { color: var(--text); background: var(--err-bg); border: 1px solid var(--err-line); border-radius: var(--radius-ctl); padding: 4px 8px; margin: 8px 0 0; }
+  #renameDlg p.err[hidden] { display: none; }
+  #renameDlg form > div:last-child, #mergeDlg form > div:last-child { margin-top: 14px; }
+  #mergeDlg p { margin: 0 0 6px; } #mergeDlg p.lead { font-weight: var(--fw-strong); }
+  .s .when { flex: none; white-space: nowrap; }      /* the date is never truncated; the label pill takes what is left */
+  .label-in { flex: 1 1 0; min-width: 0; width: 0; font: inherit; font-size: 12px; line-height: 1.3; padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--accent-bg); color: var(--text); text-overflow: ellipsis; }
+  #labelPop { position: fixed; z-index: 20; background: var(--field); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius-ctl); padding: 2px; max-height: 220px; overflow-y: auto; font-size: 13px; }
+  #labelPop[hidden] { display: none; }
+  #labelPop .opt { padding: 3px 8px; border-radius: 4px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #labelPop .opt.new { font-style: italic; }
+  #labelPop .opt[aria-selected="true"] { background: var(--text); color: var(--bg); }
   #list { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-content: start; align-items: start; }
   .item { display: flex; flex-direction: column; gap: 4px; padding: 6px; border: 1px solid transparent; border-radius: var(--radius-field); cursor: pointer; min-width: 0; }
   .item:hover { border-color: var(--line); }
@@ -99,8 +123,8 @@
   .title { width: 100%; min-width: 0; font: inherit; font-weight: var(--fw-strong); padding: 3px 6px; border: 1px solid var(--line); border-radius: var(--radius-field); background: var(--field); color: var(--text); }
   .thumb { height: 120px; border-radius: 6px; background: var(--field-locked); display: flex; align-items: center; justify-content: center; overflow: hidden; }
   .thumb img { max-width: 100%; max-height: 100%; display: block; }
-  .s { font-size: 11px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .badge { color: var(--ok); font-weight: var(--fw-strong); border: 1px solid var(--ok); border-radius: 999px; padding: 0 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .03em; }
+  .s { font-size: 11px; color: var(--muted); display: flex; gap: 8px; flex-wrap: nowrap; align-items: center; min-width: 0; }
+  .badge { flex: none; color: var(--ok); font-weight: var(--fw-strong); border: 1px solid var(--ok); border-radius: 999px; padding: 0 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .03em; }
   .nomatch { color: var(--muted); font-size: 12px; padding: 6px 8px; grid-column: 1 / -1; }
   #preview { min-width: 0; }
   #phead { flex: none; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
@@ -169,12 +193,16 @@ function themeLabel(isDark) {
         <input id="q" type="search" placeholder="Search titles" aria-label="Search titles" autocomplete="off">
         <button id="discardAllBtn" type="button" title="Discard every image in the tray" disabled>Discard All</button>
       </div>
-      <select id="sortSel" aria-label="Sort by">
-        <option value="date-desc">Date: newest first</option>
-        <option value="date-asc">Date: oldest first</option>
-        <option value="title-asc">Title: A–Z</option>
-        <option value="title-desc">Title: Z–A</option>
-      </select>
+      <div id="chips" role="group" aria-label="Filter by label"></div>
+      <div class="tools2">
+        <select id="sortSel" aria-label="Sort by">
+          <option value="date-desc">Date: newest first</option>
+          <option value="date-asc">Date: oldest first</option>
+          <option value="title-asc">Title: A–Z</option>
+          <option value="title-desc">Title: Z–A</option>
+        </select>
+        <button id="renameBtn" type="button" title="Rename the selected label (not available for All or General)" disabled>Rename label…</button>
+      </div>
       <div id="list" role="listbox" aria-label="Images"></div>
     </div>
   </aside>
@@ -200,17 +228,113 @@ function themeLabel(isDark) {
 </form></dialog>
 <dialog id="confirmAll"><form method="dialog">
   <p id="caTitle" class="lead"></p>
+  <p id="caLabel"></p>
   <p id="caSaved"></p>
   <p id="caHidden" hidden></p>
   <div class="pbtns"><button id="caCancel" value="cancel" type="submit" autofocus>Cancel</button><button id="caOk" value="ok" type="submit" class="primary"></button></div>
 </form></dialog>
+<dialog id="renameDlg"><form method="dialog">
+  <p id="rnTitle" class="lead"></p>
+  <input id="rnInput" maxlength="30" autocomplete="off" aria-label="New label name" aria-describedby="rnErr">
+  <p id="rnErr" class="err" role="alert" hidden></p>
+  <div class="pbtns"><button id="rnCancel" value="cancel" type="submit" formnovalidate>Cancel</button><button id="rnOk" value="ok" type="button" class="btn-save">Rename</button></div>
+</form></dialog>
+<dialog id="mergeDlg"><form method="dialog">
+  <p id="mgTitle" class="lead"></p>
+  <p id="mgBody"></p>
+  <div class="pbtns"><button id="mgCancel" value="cancel" type="submit" autofocus>Cancel</button><button id="mgOk" value="ok" type="submit" class="btn-save">Merge</button></div>
+</form></dialog>
+<div id="labelPop" role="listbox" aria-label="Label suggestions" hidden></div>
 
+<script>
+// ===== <label-logic> (no DOM, no storage; unit-tested by Testing/labels-unit.mjs) =====
+// Every image has exactly one label (item.label = its display form). Labels match case-insensitively through labelKey();
+// all images with the same key share one display form (the first one created). "General" is the fallback; "All" is reserved for the All chip.
+const LABEL_GENERAL = "General", LABEL_ALL = "All", LABEL_MAX = 30, KEY_GENERAL = "general", KEY_ALL = "all";
+const labelCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+const labelKey = (s) => String(s).toLowerCase();
+// Trimmed, inner runs of white space collapsed to one space, at most LABEL_MAX characters. May return "".
+function cleanLabel(raw) {
+  const s = String(raw == null ? "" : raw).replace(/\s+/g, " ").trim();
+  return Array.from(s).slice(0, LABEL_MAX).join("").trim();
+}
+// raw = what the person typed; inUse = display forms of the labels that exist now.
+// -> { ok: true, label } (empty -> General; "general" in any case -> General; a case-variant of an existing label -> that label's form)
+// or { ok: false, reason: "reserved" } for "All" in any case.
+function resolveLabel(raw, inUse) {
+  const name = cleanLabel(raw);
+  if (!name) return { ok: true, label: LABEL_GENERAL };
+  const k = labelKey(name);
+  if (k === KEY_ALL) return { ok: false, reason: "reserved" };
+  if (k === KEY_GENERAL) return { ok: true, label: LABEL_GENERAL };
+  const hit = (inUse || []).find((l) => labelKey(l) === k);
+  return { ok: true, label: hit || name };
+}
+// Stored records written before labels existed (no label), or with a label that breaks the rules, become General; images whose labels differ only
+// in case get the form of the earliest-added one. Works on the array in place and returns it. Never touches anything but .label.
+function normalizeLoadedLabels(list) {
+  const form = new Map();
+  for (const it of [...list].sort((a, b) => (a.added || 0) - (b.added || 0))) {
+    const c = typeof it.label === "string" ? cleanLabel(it.label) : "";
+    const k = labelKey(c);
+    if (!c || k === KEY_ALL || k === KEY_GENERAL) { it.label = LABEL_GENERAL; continue; }
+    if (!form.has(k)) form.set(k, c);
+    it.label = form.get(k);
+  }
+  return list;
+}
+// The chip row: All, General (always, even at 0), then the other labels alphabetically. [{ key, label, count }]
+function chipList(list) {
+  const by = new Map();
+  for (const it of list) { const k = labelKey(it.label); const e = by.get(k); if (e) e.count++; else by.set(k, { key: k, label: it.label, count: 1 }); }
+  const gen = by.get(KEY_GENERAL) || { key: KEY_GENERAL, label: LABEL_GENERAL, count: 0 };
+  by.delete(KEY_GENERAL);
+  const rest = [...by.values()].sort((a, b) => labelCollator.compare(a.label, b.label) || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
+  return [{ key: KEY_ALL, label: LABEL_ALL, count: list.length }, gen, ...rest];
+}
+const isCustomChip = (key) => key !== KEY_ALL && key !== KEY_GENERAL;
+// The remembered chip if it still exists, otherwise All.
+function pickChip(stored, list) { return typeof stored === "string" && chipList(list).some((c) => c.key === stored) ? stored : KEY_ALL; }
+// The images a chip stands for (All = every image).
+function itemsInScope(list, key) { return key === KEY_ALL ? list.slice() : list.filter((it) => labelKey(it.label) === key); }
+// Suggestions while typing in a label field: existing labels containing the typed text (all of them when `typed` is null), in chip order,
+// then a "create" entry when the text is not an existing label (and not "All").
+function suggestLabels(typed, list) {
+  const t = typed == null ? "" : cleanLabel(typed), k = labelKey(t);
+  const chips = chipList(list).filter((c) => c.key !== KEY_ALL);
+  const out = chips.filter((c) => !k || c.key.includes(k)).map((c) => ({ label: c.label, count: c.count, create: false }));
+  if (t && k !== KEY_ALL && !chips.some((c) => c.key === k)) out.push({ label: t, count: 0, create: true });
+  return out;
+}
+// What renaming the chip `fromKey` to `raw` would do. kind: "error" (message), "noop", "case" (same label, other letter case), "rename", "merge" (the new name is another existing label, General included).
+function planRename(list, fromKey, raw) {
+  if (!isCustomChip(fromKey)) return { kind: "error", message: "All and General cannot be renamed." };
+  const chips = chipList(list), cur = chips.find((c) => c.key === fromKey);
+  if (!cur) return { kind: "error", message: "That label no longer exists." };
+  const name = cleanLabel(raw);
+  if (!name) return { kind: "error", message: "Type a new name." };
+  const k = labelKey(name);
+  if (k === KEY_ALL) return { kind: "error", message: "“All” is reserved for the All chip. Choose another name." };
+  if (k === fromKey) return name === cur.label ? { kind: "noop" } : { kind: "case", label: name };
+  const target = chips.find((c) => c.key === k);
+  if (target) return { kind: "merge", label: target.label, key: k, count: cur.count, intoCount: target.count, from: cur.label };
+  return { kind: "rename", label: name };
+}
+// Gives every image of chip `fromKey` the label `label`. Returns the images changed.
+function applyRename(list, fromKey, label) {
+  const hit = list.filter((it) => labelKey(it.label) === fromKey);
+  hit.forEach((it) => { it.label = label; });
+  return hit;
+}
+// ===== </label-logic> =====
+</script>
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
 
 // ---------- storage (IndexedDB: database "imagekeeper", store "items") ----------
-// item = { id, title, blob, thumb (small webp blob or null), type, width, height, added (ms), saved }
+// item = { id, title, blob, thumb (small webp blob or null), type, width, height, added (ms), saved, label }
+// label was added later: records stored before that have none and read as "General" (normalizeLoadedLabels); they are not rewritten until next saved for another reason.
 const DB_NAME = "imagekeeper", STORE = "items";
 let db = null, dbBroken = false;
 function openDb() {
@@ -231,6 +355,8 @@ const dbAll = () => tx("readonly", (s) => s.getAll());
 const dbPut = (it) => tx("readwrite", (s) => s.put(it));
 const dbDelete = (id) => tx("readwrite", (s) => s.delete(id));
 const dbClear = () => tx("readwrite", (s) => s.clear());
+const dbPutMany = (list) => tx("readwrite", (s) => { list.forEach((it) => s.put(it)); });          // one transaction: all or nothing
+const dbDeleteMany = (ids) => tx("readwrite", (s) => { ids.forEach((id) => s.delete(id)); });
 const errStr = (e) => (e && (e.message || e.name)) || String(e);
 
 // ---------- state ----------
@@ -241,6 +367,13 @@ let selectedId = null, query = "", fit = true, previewUrl = null, lastAdded = 0,
 const SORT_KEY = "imagekeeper-sort", SORT_MODES = ["date-desc", "date-asc", "title-asc", "title-desc"];
 let sortMode = "date-desc";
 try { const v = localStorage.getItem(SORT_KEY); if (SORT_MODES.includes(v)) sortMode = v; } catch (e) { /* storage blocked: default order */ }
+// The selected filter chip (a label key, or "all"), remembered the same way as the sort order; restored in init() once the images are loaded.
+const CHIP_KEY = "imagekeeper-label";
+let chipKey = KEY_ALL;
+function setChip(k) { chipKey = k; try { localStorage.setItem(CHIP_KEY, k); } catch (e) { /* storage blocked: lasts until the page is closed */ } }
+const allItems = () => [...items.values()];
+const scopeItems = () => itemsInScope(allItems(), chipKey);
+const chipLabel = () => (chipList(allItems()).find((c) => c.key === chipKey) || { label: LABEL_ALL }).label;
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });     // case-insensitive, "shot 2" before "shot 10"
 function compareItems(a, b) {
   switch (sortMode) {
@@ -251,6 +384,14 @@ function compareItems(a, b) {
   }
 }
 const sorted = () => [...items.values()].sort(compareItems);
+// ===== <date-logic> (no DOM; unit-tested by Testing/dates-unit.mjs) =====
+// List-item date: "21 Oct 07:51", with the year ("21 Oct 2025 07:51") only when it is not the current year. Local time, 24-hour, English month names. Display only.
+const MONTHS_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function fmtItemDate(ms, nowMs) {
+  const d = new Date(ms), p = (n) => String(n).padStart(2, "0"), year = d.getFullYear() === new Date(nowMs === undefined ? Date.now() : nowMs).getFullYear() ? "" : " " + d.getFullYear();
+  return d.getDate() + " " + MONTHS_EN[d.getMonth()] + year + " " + p(d.getHours()) + ":" + p(d.getMinutes());
+}
+// ===== </date-logic> =====
 const fmtDate = (ms) => new Date(ms).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 const fmtSize = (n) => n < 1024 * 1024 ? Math.max(1, Math.round(n / 1024)) + " KB" : (n / 1024 / 1024).toFixed(1) + " MB";
 const EXT = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/bmp": "bmp", "image/svg+xml": "svg", "image/avif": "avif", "image/x-icon": "ico", "image/tiff": "tif" };
@@ -310,8 +451,9 @@ async function addFiles(files, titleFromName) {
       const thumb = await makeThumb(img);
       const width = img.naturalWidth, height = img.naturalHeight; URL.revokeObjectURL(url);
       lastAdded = Math.max(Date.now(), lastAdded + 1);
-      const it = { id: (crypto.randomUUID ? crypto.randomUUID() : String(lastAdded) + Math.random()), title: titleFromName && f.name ? titleFromFileName(f.name) : "Untitled", blob: f, thumb, type: f.type, width, height, added: lastAdded, saved: false };
+      const it = { id: (crypto.randomUUID ? crypto.randomUUID() : String(lastAdded) + Math.random()), title: titleFromName && f.name ? titleFromFileName(f.name) : "Untitled", blob: f, thumb, type: f.type, width, height, added: lastAdded, saved: false, label: LABEL_GENERAL };
       items.set(it.id, it);
+      if (chipKey !== KEY_ALL) setChip(KEY_GENERAL);                // a new image is "General": show it (All stays All)
       if (!dbBroken) { try { await dbPut(it); } catch (e) { dbBroken = true; banner("err", "Could not store the image in the browser (" + errStr(e) + "). It is shown, but will be lost on restart."); } }
       added++; if (query) { query = ""; $("q").value = ""; }       // a successful add clears the search first, so the new item is not hidden
       buildRows(); select(it.id, true);
@@ -353,7 +495,7 @@ function buildRows() {
     if (!thumbUrls.has(it.id)) thumbUrls.set(it.id, URL.createObjectURL(it.thumb || it.blob));
     im.src = thumbUrls.get(it.id); th.append(im);
     const s = document.createElement("div"); s.className = "s";
-    const when = document.createElement("span"); when.textContent = fmtDate(it.added); s.append(when);
+    const when = document.createElement("span"); when.className = "when"; when.textContent = fmtItemDate(it.added); s.append(when, labelInput(it));
     if (it.saved) s.append(savedBadge());
     li.append(t, th, s);
     li.addEventListener("click", () => select(it.id));
@@ -363,15 +505,43 @@ function buildRows() {
     t.addEventListener("keydown", (e) => { if (e.key === "Enter") t.blur(); });
     rows.set(it.id, li); list.append(li);
   }
-  applyFilter(); markActive(); refreshButtons();
+  renderChips(); applyFilter(); markActive(); refreshButtons();
 }
 function savedBadge() { const b = document.createElement("span"); b.className = "badge"; b.textContent = "saved"; return b; }
 function applyFilter() {
   const q = query.trim().toLowerCase(); let shown = 0;
-  rows.forEach((li, id) => { const ok = !q || items.get(id).title.toLowerCase().includes(q); li.hidden = !ok; if (ok) shown++; });
+  rows.forEach((li, id) => {
+    const it = items.get(id), ok = (chipKey === KEY_ALL || labelKey(it.label) === chipKey) && (!q || it.title.toLowerCase().includes(q));
+    li.hidden = !ok; if (ok) shown++;
+  });
   let nm = $("list").querySelector(".nomatch");
-  if (!shown && items.size) { if (!nm) { nm = document.createElement("div"); nm.className = "nomatch"; nm.textContent = "No images match."; $("list").append(nm); } } else if (nm) nm.remove();
+  const text = q ? "No images match." : "No images labelled “" + chipLabel() + "”.";
+  if (!shown && items.size) { if (!nm) { nm = document.createElement("div"); nm.className = "nomatch"; $("list").append(nm); } nm.textContent = text; } else if (nm) nm.remove();
 }
+
+// ---------- labels: chips ----------
+const chipEls = new Map();            // key -> chip button
+function renderChips() {
+  const chips = chipList(allItems()), box = $("chips"), focused = box.contains(document.activeElement) ? document.activeElement.dataset.key : null;
+  if (!chips.some((c) => c.key === chipKey)) setChip(KEY_ALL);        // the selected label has no images left
+  box.replaceChildren(); chipEls.clear();
+  for (const c of chips) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "chip"; b.dataset.key = c.key; b.title = c.label + " (" + c.count + ")";
+    b.setAttribute("aria-pressed", String(c.key === chipKey));
+    const n = document.createElement("span"); n.className = "cn"; n.textContent = c.label;
+    const k = document.createElement("span"); k.className = "cc"; k.textContent = String(c.count);
+    b.append(n, k); b.addEventListener("click", () => chooseChip(c.key));
+    box.append(b); chipEls.set(c.key, b);
+  }
+  if (focused && chipEls.has(focused)) chipEls.get(focused).focus();
+  refreshButtons();
+}
+function chooseChip(k) {
+  setChip(k); renderChips(); applyFilter();
+  const cur = items.get(selectedId), li = cur && rows.get(cur.id);
+  if (!li || li.hidden) { const first = visibleSorted()[0]; select(first ? first.id : null); }
+}
+const visibleSorted = () => sorted().filter((x) => rows.get(x.id) && !rows.get(x.id).hidden);
 function markActive() { rows.forEach((li, id) => { li.classList.toggle("active", id === selectedId); li.setAttribute("aria-selected", String(id === selectedId)); }); }
 function refreshSavedBadge(it) {
   const li = rows.get(it.id); if (!li) return; const s = li.querySelector(".s"), b = s.querySelector(".badge");
@@ -425,6 +595,114 @@ $("ptitle").addEventListener("input", (e) => { const it = items.get(selectedId);
 $("ptitle").addEventListener("blur", () => { const it = items.get(selectedId); if (it) titleDone(it); });
 $("ptitle").addEventListener("keydown", (e) => { if (e.key === "Enter") e.target.blur(); });
 
+// ---------- labels: the field on each image ----------
+// A combobox: ArrowUp/ArrowDown walk the suggestions, Enter chooses the highlighted one (or, with none highlighted, uses the text typed: an existing
+// label when it matches one, otherwise a new label), Esc puts the old label back, leaving the field (blur) keeps what was typed.
+const pop = { input: null, it: null, opts: [], idx: -1, dirty: false };
+const RESERVED_MSG = "“All” is reserved for the All chip – choose another label.";
+function labelInput(it) {
+  const i = document.createElement("input"); i.className = "label-in"; i.value = it.label; i.maxLength = LABEL_MAX; i.autocomplete = "off";
+  i.setAttribute("aria-label", "Label"); i.setAttribute("role", "combobox"); i.setAttribute("aria-autocomplete", "list"); i.setAttribute("aria-expanded", "false"); i.setAttribute("aria-controls", "labelPop");
+  const tip = () => { i.title = "Label: " + i.value; };           // the tooltip carries the full text, which the field may cut with an ellipsis
+  tip();
+  let justFocused = false;
+  i.addEventListener("focus", () => { justFocused = true; i.select(); openPop(i, it); });
+  i.addEventListener("mouseup", (e) => { if (justFocused) { e.preventDefault(); justFocused = false; } });       // keep the select-all a click would otherwise undo
+  i.addEventListener("input", () => { pop.dirty = true; pop.idx = -1; tip(); refreshPop(); });
+  i.addEventListener("keydown", (e) => labelKeys(e, i, it));
+  i.addEventListener("blur", () => { justFocused = false; closePop(); commitLabel(it, i); tip(); });
+  return i;
+}
+function openPop(input, it) { pop.input = input; pop.it = it; pop.dirty = false; pop.idx = -1; refreshPop(); }
+function closePop() {
+  if (pop.input) { pop.input.setAttribute("aria-expanded", "false"); pop.input.removeAttribute("aria-activedescendant"); }
+  pop.input = null; pop.it = null; pop.opts = []; pop.idx = -1; $("labelPop").hidden = true;
+}
+function refreshPop() {
+  const p = $("labelPop"), inp = pop.input; if (!inp) return;
+  pop.opts = suggestLabels(pop.dirty ? inp.value : null, allItems());
+  p.replaceChildren();
+  pop.opts.forEach((o, n) => {
+    const d = document.createElement("div"); d.className = "opt" + (o.create ? " new" : ""); d.id = "labelOpt" + n; d.setAttribute("role", "option");
+    d.textContent = o.create ? "Create “" + o.label + "”" : o.label + " (" + o.count + ")";
+    d.addEventListener("mousedown", (e) => e.preventDefault());                       // keep the focus in the field
+    d.addEventListener("click", () => { inp.value = o.label; inp.blur(); });
+    p.append(d);
+  });
+  p.hidden = !pop.opts.length; inp.setAttribute("aria-expanded", String(!p.hidden));
+  const r = inp.getBoundingClientRect(); p.style.minWidth = Math.max(r.width, 140) + "px"; p.style.maxWidth = "min(320px, 90vw)"; p.style.left = Math.max(4, Math.min(r.left, innerWidth - p.offsetWidth - 4)) + "px";
+  p.style.top = (r.bottom + 2 + p.offsetHeight > innerHeight ? Math.max(4, r.top - 2 - p.offsetHeight) : r.bottom + 2) + "px";
+  markOpt();
+}
+function markOpt() {
+  const p = $("labelPop"), inp = pop.input;
+  [...p.children].forEach((d, n) => { d.setAttribute("aria-selected", String(n === pop.idx)); if (n === pop.idx) d.scrollIntoView({ block: "nearest" }); });
+  if (inp) { if (pop.idx >= 0) inp.setAttribute("aria-activedescendant", "labelOpt" + pop.idx); else inp.removeAttribute("aria-activedescendant"); }
+}
+function labelKeys(e, input, it) {
+  const n = pop.opts.length;
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault(); if (pop.input !== input) openPop(input, it);
+    if (!pop.opts.length) return;
+    pop.idx = e.key === "ArrowDown" ? (pop.idx + 1) % pop.opts.length : (pop.idx <= 0 ? pop.opts.length - 1 : pop.idx - 1); markOpt();
+  } else if (e.key === "Enter") {
+    e.preventDefault(); if (pop.input === input && pop.idx >= 0 && pop.idx < n) input.value = pop.opts[pop.idx].label;
+    input.blur();
+  } else if (e.key === "Escape") {
+    e.preventDefault(); input.value = it.label; input.blur();
+  }
+}
+// Gives the image the label typed in its field (see resolveLabel for the rules). The field always ends up showing the label the image really has.
+function commitLabel(it, input) {
+  if (!items.has(it.id)) return;
+  const inUse = chipList(allItems()).filter((c) => c.key !== KEY_ALL).map((c) => c.label);
+  const r = resolveLabel(input.value, inUse);
+  if (!r.ok) { toast(RESERVED_MSG); input.value = it.label; return; }
+  input.value = r.label;
+  if (r.label === it.label) return;
+  const vis = visibleSorted(), i = vis.findIndex((x) => x.id === it.id);
+  it.label = r.label; persist(it);
+  renderChips(); applyFilter();
+  const li = rows.get(it.id);
+  if (selectedId === it.id && li && li.hidden) { const next = vis[i + 1] || vis[i - 1] || null; select(next ? next.id : null); }      // it left the chip being shown
+}
+$("list").addEventListener("scroll", closePop);
+addEventListener("resize", closePop);
+
+// ---------- labels: rename / merge (the chip itself) ----------
+function askRename(cur) {
+  const d = $("renameDlg"), inp = $("rnInput"), err = $("rnErr"); let plan = null;
+  $("rnTitle").textContent = "Rename label “" + cur.label + "” (" + cur.count + (cur.count === 1 ? " image" : " images") + ")";
+  inp.value = cur.label; err.hidden = true; err.textContent = "";
+  const submit = () => {
+    const p = planRename(allItems(), cur.key, inp.value);
+    if (p.kind === "error") { err.textContent = p.message; err.hidden = false; inp.focus(); return; }
+    plan = p; d.close("ok");
+  };
+  const onKey = (e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } };
+  $("rnOk").onclick = submit; inp.onkeydown = onKey; inp.oninput = () => { err.hidden = true; };
+  return new Promise((res) => { d.addEventListener("close", () => res(d.returnValue === "ok" ? plan : null), { once: true }); d.returnValue = "cancel"; d.showModal(); inp.focus(); inp.select(); });
+}
+function confirmMerge(plan) {
+  const d = $("mergeDlg");
+  $("mgTitle").textContent = "Merge “" + plan.from + "” into “" + plan.label + "”?";
+  $("mgBody").textContent = "“" + plan.label + "” already exists (" + plan.intoCount + (plan.intoCount === 1 ? " image" : " images") + "). The " + plan.count + (plan.count === 1 ? " image" : " images") + " labelled “" + plan.from + "” will get that label, and the label “" + plan.from + "” will be gone.";
+  return new Promise((res) => { d.addEventListener("close", () => res(d.returnValue === "ok"), { once: true }); d.returnValue = "cancel"; d.showModal(); $("mgCancel").focus(); });
+}
+async function renameChip() {
+  if (busy || !isCustomChip(chipKey)) return;
+  const cur = chipList(allItems()).find((c) => c.key === chipKey); if (!cur) return;
+  const plan = await askRename(cur); if (!plan || plan.kind === "noop") return;
+  if (plan.kind === "merge" && !(await confirmMerge(plan))) return;
+  const hit = itemsInScope(allItems(), cur.key), before = hit.map((x) => x.label), newLabel = plan.label;
+  applyRename(allItems(), cur.key, newLabel);
+  try { if (!dbBroken) await dbPutMany(hit); }
+  catch (e) { hit.forEach((x, n) => { x.label = before[n]; }); banner("err", "Could not store the new label in the browser (" + errStr(e) + "). Nothing was renamed."); return; }
+  setChip(labelKey(newLabel)); buildRows(); if (selectedId) select(selectedId, true);
+  toast(plan.kind === "merge" ? "Merged " + hit.length + (hit.length === 1 ? " image" : " images") + " into “" + newLabel + "”" : "Renamed to “" + newLabel + "”");
+}
+$("renameBtn").addEventListener("click", renameChip);
+
 // ---------- preview ----------
 function select(id, scroll) {
   selectedId = id; markActive(); renderPreview();
@@ -447,7 +725,12 @@ function renderPreview() {
 }
 function applyFit() { $("stage").className = fit ? "fit" : "actual"; $("fitBtn").textContent = fit ? "100%" : "Fit"; $("fitBtn").title = fit ? "Show at 100% size (scrolls)" : "Fit to pane"; }
 $("fitBtn").addEventListener("click", () => { fit = !fit; applyFit(); });
-function refreshButtons() { $("saveBtn").disabled = busy; $("discardBtn").disabled = busy; $("discardAllBtn").disabled = busy || !items.size; }
+function refreshButtons() {
+  $("saveBtn").disabled = busy; $("discardBtn").disabled = busy;
+  $("discardAllBtn").disabled = busy || !scopeItems().length;
+  $("discardAllBtn").title = chipKey === KEY_ALL ? "Discard every image in the tray" : "Discard every image labelled “" + chipLabel() + "”";
+  $("renameBtn").disabled = busy || !isCustomChip(chipKey);
+}
 
 // ---------- save ----------
 function stamp(ms) { const d = new Date(ms), p = (n) => String(n).padStart(2, "0"); return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + "_" + p(d.getHours()) + p(d.getMinutes()); }
@@ -499,24 +782,26 @@ async function discardSelected() {
 }
 $("discardBtn").addEventListener("click", discardSelected);
 
-// Discard All: always every item (saved or not, whatever the search shows), always confirmed first; Cancel has the focus.
-function confirmDiscardAll(total, unsaved, hidden) {
-  const d = $("confirmAll");
-  $("caTitle").textContent = total === 1 ? "Discard 1 image?" : "Discard all " + total + " images?";
+// Discard All: every item of the selected chip (all of them with All selected), saved or not, whatever the search shows; always confirmed first; Cancel has the focus.
+function confirmDiscardAll(total, unsaved, hidden, label) {
+  const d = $("confirmAll"), of = label ? " labelled “" + label + "”" : "";
+  $("caTitle").textContent = total === 1 ? "Discard 1 image" + of + "?" : "Discard all " + total + " images" + of + "?";
+  $("caLabel").textContent = "Label: " + (label || "All (every label)");
   $("caSaved").textContent = unsaved ? (unsaved === 1 ? "1 is not saved" : unsaved + " are not saved") + " and will be gone for good." : "All are saved.";
   $("caHidden").hidden = !hidden; $("caHidden").textContent = hidden ? "Including " + hidden + " hidden by the current search." : "";
   $("caOk").textContent = total === 1 ? "Discard 1 image" : "Discard all " + total;
   return new Promise((res) => { d.addEventListener("close", () => res(d.returnValue === "ok"), { once: true }); d.returnValue = "cancel"; d.showModal(); $("caCancel").focus(); });
 }
 async function discardAll() {
-  if (!items.size || busy) return;
-  const all = [...items.values()], unsaved = all.filter((x) => !x.saved).length;
-  let hidden = 0; rows.forEach((li) => { if (li.hidden) hidden++; });
-  if (!(await confirmDiscardAll(all.length, unsaved, hidden))) return;
-  try { if (!dbBroken) await dbClear(); }
+  const all = scopeItems(), whole = chipKey === KEY_ALL;
+  if (!all.length || busy) return;
+  const unsaved = all.filter((x) => !x.saved).length;
+  let hidden = 0; all.forEach((x) => { const li = rows.get(x.id); if (li && li.hidden) hidden++; });
+  if (!(await confirmDiscardAll(all.length, unsaved, hidden, whole ? null : chipLabel()))) return;
+  try { if (!dbBroken) { if (whole) await dbClear(); else await dbDeleteMany(all.map((x) => x.id)); } }
   catch (e) { banner("err", "Could not delete the images from browser storage (" + errStr(e) + "). Nothing was discarded."); return; }
-  saveTimers.forEach((t) => clearTimeout(t)); saveTimers.clear();
-  items.clear(); selectedId = null; query = ""; $("q").value = "";
+  all.forEach((x) => { clearTimeout(saveTimers.get(x.id)); saveTimers.delete(x.id); items.delete(x.id); });
+  selectedId = null; query = ""; $("q").value = "";
   buildRows(); renderPreview();
   toast("Discarded " + all.length + (all.length === 1 ? " image" : " images"));
 }
@@ -560,8 +845,10 @@ refreshProfileControl();
 (async function init() {
   try {
     db = await openDb();
-    (await dbAll()).forEach((it) => { items.set(it.id, it); lastAdded = Math.max(lastAdded, it.added); });
+    const stored = await dbAll();
+    normalizeLoadedLabels(stored).forEach((it) => { items.set(it.id, it); lastAdded = Math.max(lastAdded, it.added); });      // labels are set in memory only; nothing is written back here
   } catch (e) { dbBroken = true; banner("err", "Browser storage is unavailable (" + errStr(e) + "). Images can be added, but nothing is kept."); }
+  { let stored = null; try { stored = localStorage.getItem(CHIP_KEY); } catch (e) { /* storage blocked: All */ } chipKey = pickChip(stored, allItems()); }
   buildRows(); renderPreview();
   if (window.__profileState && window.__profileState.fellBack) banner("warn", "The Mint profile file (mint-profile.js) was not found, so the Default look is shown. Your Mint choice is kept and applies again when the file is back.");
   if (navigator.storage && navigator.storage.persist) { try { await navigator.storage.persist(); } catch (e) { /* best effort */ } }
