@@ -61,8 +61,8 @@
   /* ===== Image Keeper layout ===== */
   html, body { height: 100%; }
   body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-  header { flex: none; min-height: var(--hdr-min); background: var(--circle) fixed, var(--bg); padding: 0 16px; display: flex; align-items: center; gap: 12px; }
-  h1 { font-size: var(--h1-size); line-height: var(--h1-lh); margin: 0; font-weight: var(--fw-head); color: var(--heading); }
+  header { flex: none; min-height: var(--hdr-min); background: var(--circle) fixed, var(--bg); padding: 8px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }      /* wraps (title, then the controls) only when the controls no longer fit beside the title */
+  h1 { font-size: var(--h1-size); line-height: var(--h1-lh); margin: 0; font-weight: var(--fw-head); color: var(--heading); white-space: nowrap; }
   .hright { display: flex; align-items: center; gap: 12px; margin-left: auto; }
   button { font: inherit; padding: 4px 10px; border: 1px solid var(--line); border-radius: var(--radius-btn); background: transparent; color: var(--text); cursor: pointer; }
   button:hover:not(:disabled) { border-color: var(--accent); }

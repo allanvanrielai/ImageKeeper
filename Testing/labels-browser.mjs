@@ -441,8 +441,8 @@ try {
     const sel = `.item[data-id="${o[0]}"]`;
     const measure = () => page.eval(`(()=>{ const li=document.querySelector(${JSON.stringify(sel)}), q=(s)=>li.querySelector(s), r=(e)=>e.getBoundingClientRect(), d=q('.when'), l=q('.label-in'), t=q('.title'), s=q('.s');
       return { item:r(li).width, title:r(t).width, date:r(d).width, dateClipped:d.scrollWidth>d.clientWidth+0.5, label:r(l).width, sameLine:Math.abs((r(d).top+r(d).height/2)-(r(l).top+r(l).height/2))<4, order:r(l).left>=r(d).right-0.5, inside:r(l).right<=r(s).right+0.5, overflow:s.scrollWidth>s.clientWidth+0.5, ellipsis:getComputedStyle(l).textOverflow, hscroll:document.documentElement.scrollWidth>innerWidth, titleFull:Math.abs(r(t).width-(r(li).width-14))<3, text:d.textContent }; })()`);
-    // 1920 x 1080 is the real window; 1280 the laptop case; 821 the narrowest two-column layout; 820 and below one column; 340 the narrowest width without a sideways scrollbar (below ~336 the header theme button overflows, which is not part of the list item)
-    for (const w of [1920, 1280, 1024, 821, 820, 600, 400, 340]) {
+    // 1920 x 1080 is the real window; 1280 the laptop case; 821 the narrowest two-column layout; 820 and below one column; 340 and 320 narrow phone-like windows (the header wraps instead of overflowing)
+    for (const w of [1920, 1280, 1024, 821, 820, 600, 400, 340, 320]) {
       await page.send("Emulation.setDeviceMetricsOverride", { width: w, height: w >= 1920 ? 1080 : 800, deviceScaleFactor: 1, mobile: false }); await sleep(250);
       const g = await measure();
       console.log(`   (info) ${w}px: item ${Math.round(g.item)}, title ${Math.round(g.title)}, date ${Math.round(g.date)} ("${g.text}"), label field ${Math.round(g.label)}${g.label < 80 ? "  <-- under 80px" : ""}`);
@@ -540,6 +540,26 @@ try {
     // discarding the shown image empties the stage; the next one shows
     await page.eval(`document.getElementById('discardBtn').click()`); await sleep(200); await page.eval(`document.getElementById('confirm').close('ok')`); await sleep(300);
     check("noreload: after Discard the stage shows another image or the empty note", await page.eval(`!!document.querySelector('#stage img') || !!document.getElementById('emptyMsg')`));
+  }
+
+  // ---------------------------------------------------------------- header: wraps instead of overflowing on narrow windows
+  if (want("header")) {
+    console.log("== header never overflows sideways; wide layout unchanged");
+    await fresh();
+    for (const [prof, theme] of [["default", "light"], ["default", "dark"], ["mint", "light"], ["mint", "dark"]]) {
+      await page.eval(`localStorage.setItem('imagekeeper-profile','${prof}'); localStorage.setItem('imagekeeper-theme','${theme}')`); await reload();
+      for (const w of [1920, 1280, 900, 600]) {
+        await page.send("Emulation.setDeviceMetricsOverride", { width: w, height: 800, deviceScaleFactor: 1, mobile: false }); await sleep(150);
+        const g = await page.eval(`(()=>{ const h = document.querySelector('header').getBoundingClientRect(), c = document.querySelector('.hright').getBoundingClientRect(), t = document.querySelector('h1').getBoundingClientRect(); return { h: h.height, sameRow: c.top < t.bottom, right: c.right, sw: document.documentElement.scrollWidth }; })()`);
+        check(`header ${prof}-${theme} ${w}: one row, 76px high, controls end at the right padding (unchanged wide layout)`, g.h === 76 && g.sameRow && Math.round(g.right) === w - 16 && g.sw <= w, g);
+      }
+      for (const w of [420, 380, 360, 346, 340, 320, 300, 280]) {
+        await page.send("Emulation.setDeviceMetricsOverride", { width: w, height: 800, deviceScaleFactor: 1, mobile: false }); await sleep(150);
+        const g = await page.eval(`(()=>{ const hd = document.querySelector('header'), h = hd.getBoundingClientRect(), kids = [document.querySelector('h1'), document.getElementById('themeBtn'), ...document.querySelectorAll('#profileBox:not([hidden]) button')].map((e) => e.getBoundingClientRect()); return { sw: document.documentElement.scrollWidth, inside: kids.every((r) => r.left >= 0 && r.right <= innerWidth + 0.5 && r.bottom <= h.bottom + 0.5), hscroll: hd.scrollWidth > hd.clientWidth }; })()`);
+        check(`header ${prof}-${theme} ${w}: no sideways scroll, every control inside the window and the header`, g.sw <= w && g.inside && !g.hscroll, g);
+      }
+      await page.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+    }
   }
 
 } catch (e) {
