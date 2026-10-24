@@ -14,7 +14,6 @@ desktop.ini
 *.log
 
 # Test and scratch output
-Testing/
 scratch/
 tmp/
 *.tmp
@@ -26,3 +25,9 @@ Launcher/Image Keeper.lnk
 
 # Dumping place, not backed up to GitHub
 Documentation/Temporary (Not backed up to GitHub)/
+
+# Test output written inside Testing/ (the scripts themselves are committed)
+Testing/*.png
+Testing/*.json
+Testing/*.txt
+Testing/out/
