@@ -16,9 +16,9 @@ export async function startServer(py, serveFile, port, folder) {
   throw new Error("server did not start");
 }
 
-export async function launchChrome({ debugPort, width = 1280, height = 800 }) {
+export async function launchChrome({ debugPort, width = 1280, height = 800, headless = true }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ik-chrome-"));
-  const proc = spawn(CHROME, [`--user-data-dir=${dir}`, `--remote-debugging-port=${debugPort}`, "--headless=new", "--no-first-run", "--no-default-browser-check",
+  const proc = spawn(CHROME, [`--user-data-dir=${dir}`, `--remote-debugging-port=${debugPort}`, ...(headless ? ["--headless=new"] : []), "--no-first-run", "--no-default-browser-check",
     `--window-size=${width},${height}`, "--disable-extensions", "--force-device-scale-factor=1", "about:blank"], { stdio: "ignore" });
   for (let i = 0; i < 100; i++) { try { const r = await get(`http://127.0.0.1:${debugPort}/json/version`); if (r.ok) break; } catch (e) {} await sleep(100); }
   const targets = (await get(`http://127.0.0.1:${debugPort}/json/list`)).json();

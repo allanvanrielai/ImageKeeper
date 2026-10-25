@@ -92,7 +92,7 @@
   ::placeholder { color: var(--muted); opacity: 1; }
   .tools { display: flex; gap: 8px; align-items: center; }
   .tools #q { flex: 1; min-width: 0; width: auto; }
-  #discardAllBtn { white-space: nowrap; }
+  #saveAllBtn, #discardAllBtn { white-space: nowrap; }
   #sortSel { width: 100%; font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: var(--radius-btn); background: var(--field); color: var(--text); }
   #confirmAll p { margin: 0 0 6px; } #confirmAll p.lead { font-weight: var(--fw-strong); }
   #confirmAll form > div:last-child { margin-top: 14px; }
@@ -196,6 +196,7 @@ function themeLabel(isDark) {
     <div class="box">
       <div class="tools">
         <input id="q" type="search" placeholder="Search titles" aria-label="Search titles" autocomplete="off">
+        <button id="saveAllBtn" type="button" title="Nothing to save" disabled>Save All</button>
         <button id="discardAllBtn" type="button" title="Discard every image in the tray" disabled>Discard All</button>
       </div>
       <div id="chips" role="group" aria-label="Filter by label"></div>
@@ -332,13 +333,70 @@ function applyRename(list, fromKey, label) {
   return hit;
 }
 // ===== </label-logic> =====
+// ===== <save-logic> (no DOM, no storage; unit-tested by Testing/zip-unit.mjs) =====
+// item.source: "paste" or "file" (a dropped file, which is already on disk and so is stored with saved = true). Older records have no source and read as pasted.
+// What the Save button does for an image: only an unsaved image can be saved; the tooltip says why it cannot otherwise.
+function saveState(it) {
+  if (!it) return { enabled: false, title: "" };
+  if (it.saved) return { enabled: false, title: it.source === "file" ? "From a file on disk" : "Already saved" };
+  return { enabled: true, title: "Save this image to a file" };
+}
+// The images Save All would put in the zip: every unsaved image, in the order they were added.
+const unsavedItems = (list) => list.filter((it) => !it.saved).sort((a, b) => a.added - b.added);
+// ===== </save-logic> =====
+// ===== <zip-logic> (no DOM, no storage; unit-tested by Testing/zip-unit.mjs) =====
+// A plain zip with stored (uncompressed) entries, UTF-8 names, no folders, no zip64. entries: [{ name, data, size, crc, ms }]; data is a Blob or Uint8Array.
+const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(bytes, crc) { let c = ((crc || 0) ^ 0xFFFFFFFF) >>> 0; for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function dosStamp(ms) {
+  const d = new Date(ms), y = Math.min(2107, Math.max(1980, d.getFullYear()));
+  return { date: ((y - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate(), time: (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1) };
+}
+// Names compared case-insensitively; a repeat gets "-2", "-3"... before the extension ("a.png", "a-2.png"), skipping names already taken.
+function uniqueZipNames(names) {
+  const used = new Set(), out = [];
+  for (const n of names) {
+    const dot = n.lastIndexOf("."), base = dot > 0 ? n.slice(0, dot) : n, ext = dot > 0 ? n.slice(dot) : "";
+    let cand = n, k = 1;
+    while (used.has(cand.toLowerCase())) { k++; cand = base + "-" + k + ext; }
+    used.add(cand.toLowerCase()); out.push(cand);
+  }
+  return out;
+}
+// "Image_Keeper_20261024-1621.zip": local time, 24-hour.
+function zipFileName(ms) { const d = new Date(ms), p = (n) => String(n).padStart(2, "0"); return "Image_Keeper_" + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + "-" + p(d.getHours()) + p(d.getMinutes()) + ".zip"; }
+// The pieces of the zip file in order (Uint8Array headers around each entry's data). Throws when it would need zip64.
+function zipParts(entries) {
+  const enc = new TextEncoder(), parts = [], central = [];
+  let offset = 0;
+  if (entries.length > 0xFFFF) throw new Error("too many files for a zip (" + entries.length + ")");
+  for (const e of entries) {
+    const name = enc.encode(e.name), st = dosStamp(e.ms), h = new Uint8Array(30 + name.length), v = new DataView(h.buffer);
+    if (e.size > 0xFFFFFFFF || name.length > 0xFFFF) throw new Error("a file is too large for a zip");
+    v.setUint32(0, 0x04034b50, true); v.setUint16(4, 20, true); v.setUint16(6, 0x0800, true); v.setUint16(8, 0, true);
+    v.setUint16(10, st.time, true); v.setUint16(12, st.date, true); v.setUint32(14, e.crc, true); v.setUint32(18, e.size, true); v.setUint32(22, e.size, true);
+    v.setUint16(26, name.length, true); v.setUint16(28, 0, true); h.set(name, 30);
+    const c = new Uint8Array(46 + name.length), cv = new DataView(c.buffer);
+    cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true); cv.setUint16(8, 0x0800, true); cv.setUint16(10, 0, true);
+    cv.setUint16(12, st.time, true); cv.setUint16(14, st.date, true); cv.setUint32(16, e.crc, true); cv.setUint32(20, e.size, true); cv.setUint32(24, e.size, true);
+    cv.setUint16(28, name.length, true); cv.setUint32(42, offset, true); c.set(name, 46);
+    central.push(c); parts.push(h, e.data); offset += h.length + e.size;
+    if (offset > 0xFFFFFFFF) throw new Error("the zip would be too large");
+  }
+  const cdSize = central.reduce((n, c) => n + c.length, 0), end = new Uint8Array(22), ev = new DataView(end.buffer);
+  ev.setUint32(0, 0x06054b50, true); ev.setUint16(8, entries.length, true); ev.setUint16(10, entries.length, true); ev.setUint32(12, cdSize, true); ev.setUint32(16, offset, true);
+  if (offset + cdSize > 0xFFFFFFFF) throw new Error("the zip would be too large");
+  return [...parts, ...central, end];
+}
+// ===== </zip-logic> =====
 </script>
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
 
 // ---------- storage (IndexedDB: database "imagekeeper", store "items") ----------
-// item = { id, title, blob, thumb (small webp blob or null), type, width, height, added (ms), saved, label }
+// item = { id, title, blob, thumb (small webp blob or null), type, width, height, added (ms), saved, label, source }
+// source ("paste" | "file") was added later: records stored before that have none and are treated as pasted. A dropped file is stored with saved = true.
 // label was added later: records stored before that have none and read as "General" (normalizeLoadedLabels); they are not rewritten until next saved for another reason.
 const DB_NAME = "imagekeeper", STORE = "items";
 let db = null, dbBroken = false;
@@ -448,7 +506,7 @@ async function makeThumb(img) {
     return await new Promise((r) => c.toBlob(r, "image/webp", 0.85));
   } catch (e) { return null; }
 }
-async function addFiles(files, titleFromName) {
+async function addFiles(files, fromFile) {      // fromFile: dropped files (already on disk); false: pasted images
   let added = 0, bad = 0;
   for (const f of files) {
     try {
@@ -456,7 +514,7 @@ async function addFiles(files, titleFromName) {
       const thumb = await makeThumb(img);
       const width = img.naturalWidth, height = img.naturalHeight; URL.revokeObjectURL(url);
       lastAdded = Math.max(Date.now(), lastAdded + 1);
-      const it = { id: (crypto.randomUUID ? crypto.randomUUID() : String(lastAdded) + Math.random()), title: titleFromName && f.name ? titleFromFileName(f.name) : "Untitled", blob: f, thumb, type: f.type, width, height, added: lastAdded, saved: false, label: LABEL_GENERAL };
+      const it = { id: (crypto.randomUUID ? crypto.randomUUID() : String(lastAdded) + Math.random()), title: fromFile && f.name ? titleFromFileName(f.name) : "Untitled", blob: f, thumb, type: f.type, width, height, added: lastAdded, saved: !!fromFile, source: fromFile ? "file" : "paste", label: LABEL_GENERAL };
       items.set(it.id, it);
       if (chipKey !== KEY_ALL) setChip(KEY_GENERAL);                // a new image is "General": show it (All stays All)
       if (!dbBroken) { try { await dbPut(it); } catch (e) { dbBroken = true; banner("err", "Could not store the image in the browser (" + errStr(e) + "). It is shown, but will be lost on restart."); } }
@@ -735,7 +793,10 @@ function renderPreview() {
 function applyFit() { $("stage").className = fit ? "fit" : "actual"; $("fitBtn").textContent = fit ? "100%" : "Fit"; $("fitBtn").title = fit ? "Show at 100% size (scrolls)" : "Fit to pane"; }
 $("fitBtn").addEventListener("click", () => { fit = !fit; applyFit(); });
 function refreshButtons() {
-  $("saveBtn").disabled = busy; $("discardBtn").disabled = busy;
+  const sv = saveState(items.get(selectedId)); $("saveBtn").disabled = busy || !sv.enabled; $("saveBtn").title = sv.title; $("discardBtn").disabled = busy;
+  const unsaved = unsavedItems(allItems()).length; $("saveAllBtn").disabled = busy || !unsaved;
+  $("saveAllBtn").textContent = unsaved ? "Save All (" + unsaved + ")" : "Save All";
+  $("saveAllBtn").title = unsaved ? "Save the " + unsaved + (unsaved === 1 ? " unsaved image" : " unsaved images") + " to one zip file" : "Nothing to save: every image is saved or came from a file";
   $("discardAllBtn").disabled = busy || !scopeItems().length;
   $("discardAllBtn").title = chipKey === KEY_ALL ? "Discard every image in the tray" : "Discard every image labelled “" + chipLabel() + "”";
   $("renameBtn").disabled = busy || !isCustomChip(chipKey);
@@ -751,7 +812,7 @@ function suggestedName(it) {
   return t + " " + stamp(it.added) + "." + extOf(it.type);
 }
 async function saveSelected() {
-  const it = items.get(selectedId); if (!it || busy) return;
+  const it = items.get(selectedId); if (!it || busy || it.saved) return;
   if (!window.showSaveFilePicker) { banner("err", "This browser has no Save dialog (showSaveFilePicker). Use Chrome."); return; }
   busy = true; refreshButtons();
   try {
@@ -773,6 +834,31 @@ async function saveSelected() {
   } finally { busy = false; refreshButtons(); }
 }
 $("saveBtn").addEventListener("click", saveSelected);
+
+// Save All: every unsaved image (whatever the search or label filter shows) as one zip. The set is fixed when the button is clicked; images are marked saved only after the whole zip is written.
+async function saveAll() {
+  if (busy) return;
+  const snap = unsavedItems(allItems()); if (!snap.length) return;
+  if (!window.showSaveFilePicker) { banner("err", "This browser has no Save dialog (showSaveFilePicker). Use Chrome."); return; }
+  busy = true; refreshButtons();
+  try {
+    let handle;
+    try { handle = await showSaveFilePicker({ startIn: "downloads", suggestedName: zipFileName(Date.now()), types: [{ description: "Zip archive", accept: { "application/zip": [".zip"] } }] }); }
+    catch (e) {
+      if (e && e.name === "AbortError") return;                  // cancelled: change nothing
+      banner("err", "Could not open the Save dialog (" + errStr(e) + ")."); return;
+    }
+    try {
+      const names = uniqueZipNames(snap.map(suggestedName)), entries = [];
+      for (let i = 0; i < snap.length; i++) { const it = snap[i], bytes = new Uint8Array(await it.blob.arrayBuffer()); entries.push({ name: names[i], data: it.blob, size: bytes.length, crc: crc32(bytes), ms: it.added }); }
+      const w = await handle.createWritable(); await w.write(new Blob(zipParts(entries), { type: "application/zip" })); await w.close();
+    } catch (e) { banner("err", "The zip file was not written (" + errStr(e) + "). No image was marked as saved."); return; }
+    for (const it of snap) { if (!items.has(it.id)) continue; it.saved = true; refreshSavedBadge(it); await persist(it); }      // discarded while the dialog was open: skipped
+    if (items.has(selectedId)) renderPreview();
+    toast("Saved " + snap.length + (snap.length === 1 ? " image" : " images") + " to " + handle.name);
+  } finally { busy = false; refreshButtons(); }
+}
+$("saveAllBtn").addEventListener("click", saveAll);
 
 // ---------- discard ----------
 function confirmDiscard(title) {
