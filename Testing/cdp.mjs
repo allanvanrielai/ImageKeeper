@@ -58,11 +58,11 @@ class Page {
   }
   async waitFor(expr, ms = 8000) { const t0 = Date.now(); while (Date.now() - t0 < ms) { try { if (await this.eval(expr)) return true; } catch (e) {} await sleep(50); } throw new Error("timeout waiting for: " + expr); }
   async rect(sel) { const r = await this.eval(`(()=>{const e=document.querySelector(${JSON.stringify(sel)});if(!e)return null;e.scrollIntoView({block:'nearest',inline:'nearest'});const b=e.getBoundingClientRect();return {x:b.x,y:b.y,w:b.width,h:b.height}})()`); if (!r) throw new Error("no element " + sel); return r; }
-  async click(sel, { dx, dy } = {}) {
+  async click(sel, { dx, dy, modifiers = 0 } = {}) {           // modifiers: Alt 1, Ctrl 2, Meta 4, Shift 8
     const r = await this.rect(sel), x = r.x + (dx ?? r.w / 2), y = r.y + (dy ?? r.h / 2);
-    await this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
-    await this.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
-    await this.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+    await this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, modifiers });
+    await this.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1, modifiers });
+    await this.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1, modifiers });
     await sleep(60);
   }
   async key(name) {

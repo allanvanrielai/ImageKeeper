@@ -109,6 +109,23 @@ for (const [profile, theme] of looks) {
   await run(`M.text('discard dialog title', M.q('#caTitle')); M.text('discard dialog label line', M.q('#caLabel')); M.text('discard dialog count line', M.q('#caSaved'));`);
   await page.click("#caCancel"); await sleep(100);
 
+  // --- state F: four images selected with real Ctrl+clicks: grid view, captions, "N selected", the highlighted rows
+  const four = await page.eval(`T.vis().slice(0, 4).map(r => r.id)`);
+  await page.click(`.item[data-id="${four[0]}"] .thumb`);
+  for (const id of four.slice(1)) await page.click(`.item[data-id="${id}"] .thumb`, { modifiers: 2 });
+  await page.eval(`document.querySelector('.gcell').focus()`);
+  await sleep(250);
+  await page.send("Emulation.setDeviceMetricsOverride", { width: 1920, height: 1080, deviceScaleFactor: 1, mobile: false }); await sleep(300);
+  await page.shot(path.join(outDir, `${tag}-6-grid-1920.png`));
+  await page.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false }); await sleep(300);
+  await page.shot(path.join(outDir, `${tag}-6-grid-1280.png`));
+  await run(`
+    const cell = M.q('.gcell');
+    M.text('grid caption title', M.q('.gcell .gt')); M.text('grid caption date', M.q('.gcell .gd')); M.text('"N selected" text', M.q('#pcount'));
+    M.border('selected item border (several selected)', M.q('#list .item.active'));
+    M.ring('focus ring vs surroundings (grid cell)', cell);
+  `);
+  await page.click(`.item[data-id="${four[0]}"] .thumb`);
   results[tag] = M;
   const texts = M.filter((x) => x.kind === "text" && x.ratio != null), bounds = M.filter((x) => x.kind === "boundary" && x.ratio != null);
   const lowT = texts.reduce((a, b) => (a.ratio < b.ratio ? a : b)), lowB = bounds.reduce((a, b) => (a.ratio < b.ratio ? a : b));

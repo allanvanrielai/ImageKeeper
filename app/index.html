@@ -136,12 +136,22 @@
   #phead[hidden] { display: none; }
   #pinfo { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   #pmeta { font-size: 12px; color: var(--muted); }
+  #pcount { font-weight: var(--fw-strong); padding: 3px 6px; color: var(--text); }
+  #pcount[hidden], #ptitle[hidden], #pmeta[hidden] { display: none; }
   #pbtns { display: flex; gap: 6px; flex-wrap: wrap; }
   #stage { flex: 1; min-height: 0; display: flex; border-radius: var(--radius-field); background: var(--stage); border: 1px solid var(--line); overflow: hidden; }
   #stage img { display: block; margin: auto; }
   #stage.fit img { max-width: 100%; max-height: 100%; object-fit: contain; }
   #stage.actual { overflow: auto; display: block; }
   #stage.actual img { margin: 0; max-width: none; max-height: none; }
+  #stage.grid { padding: 8px; }
+  .pgrid { flex: 1; min-width: 0; display: grid; gap: 8px; }
+  .gcell { display: flex; flex-direction: column; gap: 4px; min-width: 0; min-height: 0; padding: 4px; border: 1px solid transparent; border-radius: var(--radius-btn); background: transparent; color: var(--text); text-align: left; }
+  .gimg { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .gimg img { display: block; max-width: 100%; max-height: 100%; }      /* scaled down to fit the cell, never up */
+  .gcap { flex: none; display: flex; justify-content: space-between; gap: 8px; min-width: 0; font-size: 11px; }
+  .gt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-strong); color: var(--text); }
+  .gd { flex: none; white-space: nowrap; color: var(--muted); }
   #emptyMsg { margin: auto; color: var(--muted); font-size: 16px; padding: 16px; text-align: center; }
   #msg { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 30; background: var(--text); color: var(--bg); padding: 6px 14px; border-radius: var(--radius-ctl); font-size: 13px; pointer-events: none; opacity: 0; transition: opacity .2s; max-width: 80vw; }
   #msg.show { opacity: 1; }
@@ -209,13 +219,14 @@ function themeLabel(isDark) {
         </select>
         <button id="renameBtn" type="button" title="Rename the selected label (not available for All or General)" disabled>Rename label…</button>
       </div>
-      <div id="list" role="listbox" aria-label="Images"></div>
+      <div id="list" role="listbox" aria-label="Images" aria-multiselectable="true"></div>
     </div>
   </aside>
   <main id="preview" class="box">
     <div id="phead" hidden>
       <div id="pinfo">
         <input id="ptitle" class="title" aria-label="Title" autocomplete="off">
+        <div id="pcount" hidden></div>
         <div id="pmeta"></div>
       </div>
       <div id="pbtns">
@@ -389,6 +400,34 @@ function zipParts(entries) {
   return [...parts, ...central, end];
 }
 // ===== </zip-logic> =====
+// ===== <select-logic> (no DOM, no storage; unit-tested by Testing/select-unit.mjs) =====
+// Multi-select. state = { sel: [ids in the order they were added, the last one is the one shown alone], last: id of the last clicked image }.
+// order = the ids shown in the list now, top to bottom (so "range" follows whatever sort order and filter are active).
+const SELECT_MAX = 6;
+function applyClick(state, order, id, mods) {
+  const sel = state.sel.slice(), last = state.last;
+  if (mods.shift) {                                               // the range from the last clicked image to this one replaces the selection
+    const to = order.indexOf(id); if (to < 0) return { sel, last, rejected: false };
+    let from = order.indexOf(order.includes(last) ? last : sel[sel.length - 1]); if (from < 0) from = to;
+    const ids = from <= to ? order.slice(from, to + 1) : order.slice(to, from + 1).reverse();      // always ends with the clicked image
+    return ids.length > SELECT_MAX ? { sel, last, rejected: true } : { sel: ids, last: id, rejected: false };
+  }
+  if (mods.ctrl) {                                                // add or remove one image; the last one cannot be removed
+    if (sel.includes(id)) {
+      if (sel.length === 1) return { sel, last: id, rejected: false };
+      const rest = sel.filter((x) => x !== id); return { sel: rest, last: rest[rest.length - 1], rejected: false };
+    }
+    return sel.length >= SELECT_MAX ? { sel, last, rejected: true } : { sel: [...sel, id], last: id, rejected: false };
+  }
+  return { sel: [id], last: id, rejected: false };
+}
+// Esc: back to the last clicked image (or, if that one was removed, the last one added).
+function escReduce(state) { const keep = state.sel.includes(state.last) ? state.last : state.sel[state.sel.length - 1]; return { sel: keep ? [keep] : [], last: keep || null }; }
+// Grid for n images: 2 across for 2, 3 across for 3, 2 x 2 for 4, 3 across and 2 down for 5 or 6.
+function gridShape(n) { return n <= 1 ? { cols: 1, rows: 1 } : n === 2 ? { cols: 2, rows: 1 } : n === 3 ? { cols: 3, rows: 1 } : n === 4 ? { cols: 2, rows: 2 } : { cols: 3, rows: 2 }; }
+// Oldest first by date added, whatever the list's sort order.
+const gridOrder = (list) => list.slice().sort((a, b) => a.added - b.added || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+// ===== </select-logic> =====
 </script>
 <script>
 "use strict";
@@ -426,7 +465,7 @@ const errStr = (e) => (e && (e.message || e.name)) || String(e);
 const items = new Map();              // id -> item
 const rows = new Map();               // id -> list element
 const thumbUrls = new Map();          // id -> object URL of the thumbnail
-let selectedId = null, query = "", fit = true, previewUrl = null, lastAdded = 0, busy = false;
+let selectedId = null, sel = [], lastClicked = null, query = "", fit = true, previewUrl = null, lastAdded = 0, busy = false;
 const SORT_KEY = "imagekeeper-sort", SORT_MODES = ["date-desc", "date-asc", "title-asc", "title-desc"];
 let sortMode = "date-desc";
 try { const v = localStorage.getItem(SORT_KEY); if (SORT_MODES.includes(v)) sortMode = v; } catch (e) { /* storage blocked: default order */ }
@@ -548,6 +587,7 @@ window.addEventListener("drop", (e) => {
 // ---------- list ----------
 function buildRows() {
   const list = $("list");
+  if (sel.length) { sel = sel.filter((id) => items.has(id)); if (sel.length && !sel.includes(selectedId)) selectedId = sel[sel.length - 1]; }      // discarded images drop out of a multi-selection
   rows.forEach((r) => r.remove()); rows.clear();
   thumbUrls.forEach((u, id) => { if (!items.has(id)) { URL.revokeObjectURL(u); thumbUrls.delete(id); } });
   for (const it of sorted()) {
@@ -561,8 +601,9 @@ function buildRows() {
     const when = document.createElement("span"); when.className = "when"; when.textContent = fmtItemDate(it.added); s.append(when, labelInput(it));
     if (it.saved) s.append(savedBadge());
     li.append(t, th, s);
-    li.addEventListener("click", () => select(it.id));
-    li.addEventListener("keydown", (e) => { if (e.target === li && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); select(it.id); } });
+    li.addEventListener("mousedown", (e) => { if (e.shiftKey || e.ctrlKey || e.metaKey) e.preventDefault(); });      // Ctrl/Shift+click selects, it does not put the cursor in a field or select text
+    li.addEventListener("click", (e) => itemClick(e, it));
+    li.addEventListener("keydown", (e) => { if (e.target === li && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); itemClick(e, it); } });
     t.addEventListener("input", () => titleEdited(it, t.value, t));
     t.addEventListener("blur", () => titleDone(it));
     t.addEventListener("keydown", (e) => { if (e.key === "Enter") t.blur(); });
@@ -601,16 +642,23 @@ function renderChips() {
 }
 function chooseChip(k) {
   setChip(k); renderChips(); applyFilter();
+  if (sel.length > 1) { collapseSelection(); return; }
   const cur = items.get(selectedId), li = cur && rows.get(cur.id);
   if (!li || li.hidden) { const first = visibleSorted()[0]; select(first ? first.id : null); }
 }
+// A new search text or label filter ends a multi-selection: the last clicked image stays if it is still shown, otherwise the first one shown.
+function collapseSelection() {
+  const shown = (id) => { const li = rows.get(id); return !!li && !li.hidden; }, first = visibleSorted()[0];
+  select(shown(lastClicked) ? lastClicked : shown(selectedId) ? selectedId : first ? first.id : null);
+}
 const visibleSorted = () => sorted().filter((x) => rows.get(x.id) && !rows.get(x.id).hidden);
-function markActive() { rows.forEach((li, id) => { li.classList.toggle("active", id === selectedId); li.setAttribute("aria-selected", String(id === selectedId)); }); }
+function markActive() { rows.forEach((li, id) => { const on = sel.includes(id); li.classList.toggle("active", on); li.setAttribute("aria-selected", String(on)); }); }
+function revealSelected() { const li = rows.get(selectedId); if (li) li.scrollIntoView({ block: "nearest" }); }
 function refreshSavedBadge(it) {
   const li = rows.get(it.id); if (!li) return; const s = li.querySelector(".s"), b = s.querySelector(".badge");
   if (it.saved && !b) s.append(savedBadge()); else if (!it.saved && b) b.remove();
 }
-$("q").addEventListener("input", (e) => { query = e.target.value; applyFilter(); });
+$("q").addEventListener("input", (e) => { query = e.target.value; applyFilter(); if (sel.length > 1) collapseSelection(); });
 
 // Moves the existing rows into the current order (no rebuild, so a click on another row that caused the blur still lands). True if anything moved.
 function reorderRows() {
@@ -623,20 +671,20 @@ $("sortSel").value = sortMode;
 $("sortSel").addEventListener("change", (e) => {
   sortMode = SORT_MODES.includes(e.target.value) ? e.target.value : "date-desc";
   try { localStorage.setItem(SORT_KEY, sortMode); } catch (err) { /* storage blocked: lasts until the page is closed */ }
-  reorderRows(); if (selectedId) select(selectedId, true);
+  reorderRows(); revealSelected();
 });
 
 // ---------- titles ----------
 const saveTimers = new Map();
 function titleEdited(it, value, source) {
-  it.title = value;
+  it.title = value; updateCell(it);
   const li = rows.get(it.id); if (li && source !== li.querySelector(".title")) li.querySelector(".title").value = value;
   if (source !== $("ptitle") && it.id === selectedId) $("ptitle").value = value;
   clearTimeout(saveTimers.get(it.id)); saveTimers.set(it.id, setTimeout(() => persist(it), 400));
 }
 function titleDone(it) {
   if (!items.has(it.id)) return;
-  if (!it.title.trim()) { it.title = "Untitled"; const li = rows.get(it.id); if (li) li.querySelector(".title").value = "Untitled"; if (it.id === selectedId) $("ptitle").value = "Untitled"; }
+  if (!it.title.trim()) { it.title = "Untitled"; updateCell(it); const li = rows.get(it.id); if (li) li.querySelector(".title").value = "Untitled"; if (it.id === selectedId) $("ptitle").value = "Untitled"; }
   clearTimeout(saveTimers.get(it.id)); persist(it);
   if (sortMode.startsWith("title")) resortAfterEdit(it);          // re-sort once editing ends, not per keystroke
 }
@@ -647,7 +695,7 @@ document.addEventListener("pointerdown", () => { pointerDown = true; }, true);
 document.addEventListener("pointerup", () => { pointerDown = false; }, true);
 document.addEventListener("pointercancel", () => { pointerDown = false; }, true);
 function resortAfterEdit(it) {
-  const run = () => { if (items.has(it.id) && reorderRows() && it.id === selectedId) select(it.id, true); };
+  const run = () => { if (items.has(it.id) && reorderRows() && it.id === selectedId) revealSelected(); };
   if (pointerDown) document.addEventListener("pointerup", () => setTimeout(run, 0), { once: true, capture: true }); else run();
 }
 async function persist(it) {
@@ -761,31 +809,80 @@ async function renameChip() {
   applyRename(allItems(), cur.key, newLabel);
   try { if (!dbBroken) await dbPutMany(hit); }
   catch (e) { hit.forEach((x, n) => { x.label = before[n]; }); banner("err", "Could not store the new label in the browser (" + errStr(e) + "). Nothing was renamed."); return; }
-  setChip(labelKey(newLabel)); buildRows(); if (selectedId) select(selectedId, true);
+  setChip(labelKey(newLabel)); buildRows(); if (selectedId) { renderPreview(); revealSelected(); }
   toast(plan.kind === "merge" ? "Merged " + hit.length + (hit.length === 1 ? " image" : " images") + " into “" + newLabel + "”" : "Renamed to “" + newLabel + "”");
 }
 $("renameBtn").addEventListener("click", renameChip);
 
 // ---------- preview ----------
+// Selects one image (and clears any multi-selection). selectedId is always the image shown alone, or the last one added to a multi-selection.
 function select(id, scroll) {
-  selectedId = id; markActive(); renderPreview();
-  if (scroll) { const li = rows.get(id); if (li) li.scrollIntoView({ block: "nearest" }); }
+  selectedId = id; sel = id ? [id] : []; lastClicked = id; markActive(); renderPreview();
+  if (scroll) revealSelected();
 }
+// Click on a list item: plain = that image only; Ctrl = add/remove; Shift = the range from the last clicked image (see applyClick). At most SELECT_MAX.
+function itemClick(e, it) {
+  const ctrl = e.ctrlKey || e.metaKey, shift = e.shiftKey;
+  if (!ctrl && !shift) { select(it.id); return; }
+  if (isTextField(document.activeElement)) document.activeElement.blur();         // so that Esc below is not taken by a field the person was editing
+  const r = applyClick({ sel, last: lastClicked }, visibleSorted().map((x) => x.id), it.id, { ctrl, shift });
+  if (r.rejected) { toast("Up to " + SELECT_MAX + " images at a time"); return; }
+  sel = r.sel; lastClicked = r.last; selectedId = sel[sel.length - 1] || null; markActive(); renderPreview();
+}
+// Esc with several images selected goes back to the last clicked one, unless something else owns Esc (a dialog, the suggestion list, a text field being edited).
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || e.defaultPrevented || sel.length < 2) return;
+  const a = document.activeElement;
+  if (document.querySelector("dialog[open]") || pop.input || (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable))) return;
+  e.preventDefault(); const r = escReduce({ sel, last: lastClicked }); select(r.last);
+});
 let shownId = null;                   // the image the stage is showing; selecting it again keeps the same <img> (no reload, no flicker)
+let gridKey = "", gridUrls = [];      // the images the grid shows (ids joined) and their object URLs
+function dropGrid() { gridUrls.forEach((u) => URL.revokeObjectURL(u)); gridUrls = []; gridKey = ""; }
+const cellName = (it) => it.title + ", " + fmtItemDate(it.added);
+function updateCell(it) { const c = $("stage").querySelector('.gcell[data-id="' + it.id + '"]'); if (!c) return; c.setAttribute("aria-label", cellName(it)); c.querySelector(".gt").textContent = it.title; }
+// Two or more selected: a grid of equal cells (oldest first), each image scaled down to fit but never up, with its title and date underneath. Clicking a cell shows that image alone.
+function renderGrid(stage) {
+  const list = gridOrder(sel.map((id) => items.get(id)).filter(Boolean));
+  $("phead").hidden = false; $("ptitle").hidden = true; $("pmeta").hidden = true; $("pcount").hidden = false; $("pcount").textContent = list.length + " selected";
+  const key = list.map((x) => x.id).join("|");
+  if (key === gridKey && stage.querySelector(":scope > .pgrid")) { refreshButtons(); return; }
+  if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
+  shownId = null; dropGrid(); gridKey = key;
+  const sh = gridShape(list.length), g = document.createElement("div");
+  g.className = "pgrid"; g.setAttribute("role", "group"); g.setAttribute("aria-label", list.length + " selected images");
+  g.style.gridTemplateColumns = "repeat(" + sh.cols + ", minmax(0, 1fr))"; g.style.gridTemplateRows = "repeat(" + sh.rows + ", minmax(0, 1fr))";
+  for (const it of list) {
+    const c = document.createElement("button"); c.type = "button"; c.className = "gcell"; c.dataset.id = it.id; c.setAttribute("aria-label", cellName(it)); c.title = "Show this image alone";
+    const box = document.createElement("div"); box.className = "gimg";
+    const url = URL.createObjectURL(it.blob); gridUrls.push(url);
+    const im = document.createElement("img"); im.src = url; im.alt = ""; im.draggable = false; box.append(im);
+    const cap = document.createElement("div"); cap.className = "gcap";
+    const t = document.createElement("span"); t.className = "gt"; t.textContent = it.title;
+    const d = document.createElement("span"); d.className = "gd"; d.textContent = fmtItemDate(it.added);
+    cap.append(t, d); c.append(box, cap);
+    c.addEventListener("click", () => select(it.id, true));
+    g.append(c);
+  }
+  stage.replaceChildren(g); stage.className = "grid"; refreshButtons();
+}
 function renderPreview() {
-  const it = items.get(selectedId), stage = $("stage");
+  const stage = $("stage");
+  if (sel.length > 1) { renderGrid(stage); return; }
+  const it = items.get(selectedId);
+  $("ptitle").hidden = false; $("pmeta").hidden = false; $("pcount").hidden = true;
   if (!it) {
     if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
-    shownId = null; stage.replaceChildren(); $("phead").hidden = true;
-    const m = document.createElement("div"); m.id = "emptyMsg"; m.textContent = "Paste (Ctrl+V) or drop an image"; stage.append(m); return;
+    shownId = null; dropGrid(); stage.replaceChildren(); $("phead").hidden = true; stage.className = "fit";
+    const m = document.createElement("div"); m.id = "emptyMsg"; m.textContent = "Paste (Ctrl+V) or drop an image"; stage.append(m); refreshButtons(); return;
   }
   $("phead").hidden = false;
   if (document.activeElement !== $("ptitle")) $("ptitle").value = it.title;
   $("pmeta").textContent = fmtDate(it.added) + "  ·  " + typeLabel(it.type) + "  ·  " + it.width + " × " + it.height + "  ·  " + fmtSize(it.blob.size) + (it.saved ? "  ·  saved" : "");
-  const shown = stage.querySelector("img");
+  const shown = stage.querySelector(":scope > img");
   if (shown && shownId === it.id && previewUrl) { shown.alt = it.title; applyFit(); refreshButtons(); return; }
   if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
-  stage.replaceChildren();
+  dropGrid(); stage.replaceChildren();
   previewUrl = URL.createObjectURL(it.blob); shownId = it.id;
   const im = document.createElement("img"); im.src = previewUrl; im.alt = it.title; im.draggable = false; stage.append(im);
   applyFit(); refreshButtons();
@@ -793,7 +890,10 @@ function renderPreview() {
 function applyFit() { $("stage").className = fit ? "fit" : "actual"; $("fitBtn").textContent = fit ? "100%" : "Fit"; $("fitBtn").title = fit ? "Show at 100% size (scrolls)" : "Fit to pane"; }
 $("fitBtn").addEventListener("click", () => { fit = !fit; applyFit(); });
 function refreshButtons() {
-  const sv = saveState(items.get(selectedId)); $("saveBtn").disabled = busy || !sv.enabled; $("saveBtn").title = sv.title; $("discardBtn").disabled = busy;
+  const multi = sel.length > 1, sv = multi ? { enabled: false, title: "Select one image to save it" } : saveState(items.get(selectedId));
+  $("saveBtn").disabled = busy || !sv.enabled; $("saveBtn").title = sv.title;
+  $("discardBtn").disabled = busy || multi; $("discardBtn").title = multi ? "Select one image to discard it" : "";
+  $("fitBtn").disabled = multi; if (multi) $("fitBtn").title = "Select one image to change its size";
   const unsaved = unsavedItems(allItems()).length; $("saveAllBtn").disabled = busy || !unsaved;
   $("saveAllBtn").textContent = unsaved ? "Save All (" + unsaved + ")" : "Save All";
   $("saveAllBtn").title = unsaved ? "Save the " + unsaved + (unsaved === 1 ? " unsaved image" : " unsaved images") + " to one zip file" : "Nothing to save: every image is saved or came from a file";
@@ -812,7 +912,7 @@ function suggestedName(it) {
   return t + " " + stamp(it.added) + "." + extOf(it.type);
 }
 async function saveSelected() {
-  const it = items.get(selectedId); if (!it || busy || it.saved) return;
+  const it = items.get(selectedId); if (!it || busy || it.saved || sel.length > 1) return;
   if (!window.showSaveFilePicker) { banner("err", "This browser has no Save dialog (showSaveFilePicker). Use Chrome."); return; }
   busy = true; refreshButtons();
   try {
@@ -866,7 +966,7 @@ function confirmDiscard(title) {
   return new Promise((res) => { d.addEventListener("close", () => res(d.returnValue === "ok"), { once: true }); d.returnValue = "cancel"; d.showModal(); });
 }
 async function discardSelected() {
-  const it = items.get(selectedId); if (!it || busy) return;
+  const it = items.get(selectedId); if (!it || busy || sel.length > 1) return;
   if (!it.saved && !(await confirmDiscard(it.title))) return;
   const vis = sorted().filter((x) => rows.get(x.id) && !rows.get(x.id).hidden), i = vis.findIndex((x) => x.id === it.id);
   const next = vis[i + 1] || vis[i - 1] || null;
@@ -896,7 +996,7 @@ async function discardAll() {
   try { if (!dbBroken) { if (whole) await dbClear(); else await dbDeleteMany(all.map((x) => x.id)); } }
   catch (e) { banner("err", "Could not delete the images from browser storage (" + errStr(e) + "). Nothing was discarded."); return; }
   all.forEach((x) => { clearTimeout(saveTimers.get(x.id)); saveTimers.delete(x.id); items.delete(x.id); });
-  selectedId = null; query = ""; $("q").value = "";
+  selectedId = null; sel = []; lastClicked = null; query = ""; $("q").value = "";
   buildRows(); renderPreview();
   toast("Discarded " + all.length + (all.length === 1 ? " image" : " images"));
 }
