@@ -24,6 +24,25 @@ async function fresh() {
   await reload();
   await page.eval(`localStorage.setItem('imagekeeper-sort','date-desc'); sortMode='date-desc'; document.getElementById('sortSel').value='date-desc'; reorderRows(); 0`);
 }
+// Independent check of the best-fit rule: try every columns x rows, score = smallest scale (never above 1), return every arrangement that ties for best.
+const GAP = 6, CHROME = 3, CAP = 17;
+function bestShapes(sizes, box) {
+  const n = sizes.length, res = [];
+  for (let cols = 1; cols <= n; cols++) for (let rows = 1; rows <= n; rows++) {
+    if (cols * rows < n || (cols - 1) * rows >= n || cols * (rows - 1) >= n) continue;
+    const cw = (box.w - GAP * (cols - 1)) / cols - 2 * CHROME, ch = (box.h - GAP * (rows - 1)) / rows - 2 * CHROME - CAP;
+    res.push({ cols, rows, score: Math.min(...sizes.map(([w, h]) => Math.min(1, cw / w, ch / h))) });
+  }
+  const top = Math.max(...res.map((r) => r.score));
+  return { best: res.filter((r) => r.score >= top - 1e-9), score: top };
+}
+async function freshWith(specs) {      // specs: [[id, title, w, h, minutes]]
+  await load(); await page.eval(`T.wipe()`);
+  await page.eval(`(async()=>{ const S=${JSON.stringify(specs)}, out=[]; for (let i=0;i<S.length;i++){ const [id,title,w,h,m]=S[i]; out.push({id,title,blob:await T.png(w,h,i*40),thumb:await T.png(Math.max(1,Math.round(w/8)),Math.max(1,Math.round(h/8)),i*40),type:'image/png',width:w,height:h,added:${BASE}+m*60000,saved:false,source:'paste',label:'General'}); } await T.seed(out); })()`);
+  await reload();
+}
+const view = (w, h) => page.send("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: 1, mobile: false });
+const gridInfo = () => page.eval(`(()=>{ const g = document.querySelector('.pgrid'), cells = [...g.querySelectorAll('.gcell')]; return { pane: [g.clientWidth, g.clientHeight], cols: +g.dataset.cols, rows: +g.dataset.rows, domCols: new Set(cells.map(c => Math.round(c.getBoundingClientRect().x))).size, domRows: new Set(cells.map(c => Math.round(c.getBoundingClientRect().y))).size, scales: cells.map(c => { const i = c.querySelector('img'), b = i.getBoundingClientRect(); return Math.min(b.width / i.naturalWidth, b.height / i.naturalHeight); }) }; })()`);
 const MOD = { ctrl: 2, shift: 8 };
 const thumb = (id) => `.item[data-id="${id}"] .thumb`;
 const press = (id, modifiers = 0, part = "thumb") => page.click(part === "thumb" ? thumb(id) : `.item[data-id="${id}"] .${part}`, { modifiers });
@@ -175,7 +194,6 @@ try {
   // ------------------------------------------------------------ grid
   console.log("== grid view");
   const pick = { 2: ["e", "b"], 3: ["g", "d", "h"], 4: ["a", "f", "c", "e"], 5: ["b", "d", "h", "g", "a"], 6: ["e", "b", "g", "d", "h", "a"] };
-  const SHAPE = { 2: [2, 1], 3: [3, 1], 4: [2, 2], 5: [3, 2], 6: [3, 2] };
   await fresh();
   for (const n of [2, 3, 4, 5, 6]) {
     await plain(pick[n][0]); for (const id of pick[n].slice(1)) await ctrl(id);
@@ -184,7 +202,9 @@ try {
       return { ids: cells.map(c=>c.dataset.id), cols:new Set(rect.map(c=>c.x)).size, rows:new Set(rect.map(c=>c.y)).size, sameSize: rect.every(c=>Math.abs(c.w-rect[0].w)<1.5 && Math.abs(c.h-rect[0].h)<1.5), w:rect[0].w, h:rect[0].h, stage: r(document.getElementById('stage')).width }; })()`);
     const expectIds = pick[n].slice().sort((p, q) => SEED[p][1] - SEED[q][1]);
     same(`grid ${n}: oldest first (by date added), whatever the list order`, g.ids, expectIds);
-    same(`grid ${n}: ${SHAPE[n][0]} across, ${SHAPE[n][1]} down`, [g.cols, g.rows], SHAPE[n]);
+    const gi = await gridInfo(), exp = bestShapes(expectIds.map((id) => [SEED[id][2], SEED[id][3]]), { w: gi.pane[0], h: gi.pane[1] });
+    check(`grid ${n}: the arrangement is a best fit for these image sizes and this pane (${gi.cols} across x ${gi.rows} down)`, exp.best.some((b) => b.cols === gi.cols && b.rows === gi.rows) && gi.domCols === gi.cols, { gi, exp });
+    check(`grid ${n}: the smallest displayed scale is the predicted one (${Math.round(exp.score * 100)}%)`, Math.abs(Math.min(...gi.scales) - exp.score) < 0.015, { shown: Math.min(...gi.scales), exp: exp.score });
     check(`grid ${n}: all cells the same size`, g.sameSize, g);
     const im = await page.eval(`[...document.querySelectorAll('.pgrid .gcell')].map(c => { const i = c.querySelector('img'), b = i.getBoundingClientRect(), box = c.querySelector('.gframe').getBoundingClientRect(), blk = c.querySelector('.gblock').getBoundingClientRect(), cp = c.querySelector('.gcap').getBoundingClientRect(), id = c.dataset.id; return { id, w: b.width, h: b.height, nw: i.naturalWidth, nh: i.naturalHeight, cx: b.x + b.width / 2 - (box.x + box.width / 2), cy: blk.y + blk.height / 2 - (box.y + box.height / 2), fits: blk.width <= box.width + 0.5 && blk.height <= box.height + 0.5 && cp.bottom <= box.bottom + 0.5, gap: cp.top - b.bottom, capCx: cp.x + cp.width / 2 - (b.x + b.width / 2) }; })`);
     check(`grid ${n}: no image is shown larger than its real size`, im.every((i) => i.w <= i.nw + 0.5 && i.h <= i.nh + 0.5), im);
@@ -201,6 +221,38 @@ try {
   const mixed = await page.eval(`[...document.querySelectorAll('.pgrid .gcell img')].map(i => [Math.round(i.getBoundingClientRect().width), Math.round(i.getBoundingClientRect().height), i.naturalWidth, i.naturalHeight])`);
   same("mixed sizes (oldest first: Alpha 1000x700, then Golf 50x50): the 50x50 image stays 50x50", [mixed[1][0], mixed[1][1]], [50, 50]);
   check("mixed sizes: the big one is smaller than 1000 and keeps its 10:7 proportions", mixed[0][0] < 1000 && Math.abs(mixed[0][0] / mixed[0][1] - 10 / 7) < 0.03, mixed);
+  // best fit: small images keep the default arrangement, a resize recalculates, six 780x440 images
+  console.log("== best-fit arrangement");
+  await freshWith(Array.from({ length: 6 }, (_, i) => ["t" + i, "Tiny " + i, 60, 40, i + 1]));
+  for (const n of [2, 3, 4, 5, 6]) {
+    await plain("t0"); for (let i = 1; i < n; i++) await ctrl("t" + i); await sleep(150);
+    const gi = await gridInfo(), dflt = { 2: [2, 1], 3: [3, 1], 4: [2, 2], 5: [3, 2], 6: [3, 2] }[n];
+    same(`best fit: ${n} images that all fit at 100% keep the default arrangement`, [gi.cols, gi.rows, gi.scales.every((x) => Math.abs(x - 1) < 0.001)], [...dflt, true]);
+  }
+  await freshWith([["x0", "Wide one", 1000, 700, 1], ["x1", "Wide two", 1000, 700, 2]]);
+  await view(1920, 1080); await sleep(250);
+  await plain("x0"); await ctrl("x1"); await sleep(300);
+  let r1 = await gridInfo(), e1 = bestShapes([[1000, 700], [1000, 700]], { w: r1.pane[0], h: r1.pane[1] });
+  same("resize: two 1000x700 images at 1920x1080 sit side by side (2 across, 1 down)", [r1.cols, r1.rows, e1.best.length], [2, 1, 1]);
+  check("resize: ...at about 63%", Math.abs(Math.min(...r1.scales) - 0.63) < 0.02, r1.scales);
+  await view(1280, 800); await sleep(400);
+  let r2 = await gridInfo(), e2 = bestShapes([[1000, 700], [1000, 700]], { w: r2.pane[0], h: r2.pane[1] });
+  same("resize: after the window shrinks to 1280x800 the same two images are stacked (1 across, 2 down)", [r2.cols, r2.rows, e2.best.length], [1, 2, 1]);
+  check("resize: ...at about 41%, equal in both cells", Math.abs(Math.min(...r2.scales) - 0.41) < 0.02 && Math.abs(r2.scales[0] - r2.scales[1]) < 0.01, r2.scales);
+  await view(1920, 1080); await sleep(400);
+  let r3 = await gridInfo();
+  same("resize: and back to 1920x1080 it is side by side again", [r3.cols, r3.rows], [2, 1]);
+  check("resize: the grid was recalculated without being rebuilt (same images, no flicker)", await page.eval(`(()=>{ const i = document.querySelector('.pgrid .gcell img'); i.__m = 1; window.dispatchEvent(new Event('resize')); return document.querySelector('.pgrid .gcell img').__m === 1; })()`));
+  await freshWith(Array.from({ length: 6 }, (_, i) => ["s" + i, "Shot " + (i + 1), 780, 440, i + 1]));
+  await view(1920, 1080); await sleep(250);
+  await plain("s0"); for (let i = 1; i < 6; i++) await ctrl("s" + i); await sleep(400);
+  const six = await gridInfo(), eSix = bestShapes(Array(6).fill([780, 440]), { w: six.pane[0], h: six.pane[1] });
+  same("six 780x440 images in a 1920x1080 window: 2 across, 3 down", [six.cols, six.rows, six.domCols, six.domRows], [2, 3, 2, 3]);
+  check("six 780x440 images: every image at the same scale, about 63% (the old fixed 3x2 gave 52%)", six.scales.every((x) => Math.abs(x - six.scales[0]) < 0.01) && Math.abs(six.scales[0] - 0.63) < 0.02 && Math.abs(six.scales[0] - eSix.score) < 0.015, { six, eSix });
+  console.log("   (info) six 780x440 at 1920x1080: pane " + six.pane.join("x") + ", " + six.cols + " across x " + six.rows + " down, display scale " + six.scales.map((x) => Math.round(x * 100)).join("%, ") + "%");
+  await view(1280, 800); await sleep(300);
+  await fresh();
+  const pick2 = ["e", "b"]; await plain(pick2[0]); await ctrl(pick2[1]); await sleep(150);
   // a small image in a large cell: the caption stays right under the image, the block is centred in the cell
   await plain("e"); await ctrl("g"); await sleep(150);
   const small = await page.eval(`[...document.querySelectorAll('.pgrid .gcell')].map(c => { const i = c.querySelector('img').getBoundingClientRect(), cp = c.querySelector('.gcap').getBoundingClientRect(), f = c.querySelector('.gframe').getBoundingClientRect(), blk = c.querySelector('.gblock').getBoundingClientRect(); return { w: Math.round(i.width), h: Math.round(i.height), gap: Math.round(cp.top - i.bottom), cellH: Math.round(f.height), cellW: Math.round(f.width), above: Math.round(blk.top - f.top), below: Math.round(f.bottom - blk.bottom), capLeft: Math.round(cp.left - i.left) }; })`);

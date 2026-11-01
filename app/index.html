@@ -144,12 +144,12 @@
   #stage.fit img { max-width: 100%; max-height: 100%; object-fit: contain; }
   #stage.actual { overflow: auto; display: block; }
   #stage.actual img { margin: 0; max-width: none; max-height: none; }
-  #stage.grid { padding: 8px; }
-  .pgrid { flex: 1; min-width: 0; display: grid; gap: 8px; }
-  .gcell { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 4px; border: 1px solid transparent; border-radius: var(--radius-btn); background: transparent; color: var(--text); text-align: left; }
+  #stage.grid { padding: 6px; }      /* the grid numbers below (6 px gap, 3 px cell chrome, 17 px caption) are the ones bestGrid is given */
+  .pgrid { flex: 1; min-width: 0; min-height: 0; display: grid; gap: 6px; }
+  .gcell { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 2px; border: 1px solid transparent; border-radius: var(--radius-btn); background: transparent; color: var(--text); text-align: left; }
   .gframe { flex: 1; min-height: 0; width: 100%; container-type: size; display: flex; align-items: center; justify-content: center; overflow: hidden; }      /* the cell's content box, measured for the image height below */
-  .gblock { display: flex; flex-direction: column; align-items: center; gap: 4px; max-width: 100%; min-width: min(100%, 150px); }      /* the image with its caption directly under it, centred in the cell */
-  .gblock img { display: block; max-width: 100%; max-height: calc(100cqh - 20px); }      /* scaled down to fit the cell (room kept for the caption), never up */
+  .gblock { display: flex; flex-direction: column; align-items: center; gap: 3px; max-width: 100%; min-width: min(100%, 150px); }      /* the image with its caption directly under it, centred in the cell */
+  .gblock img { display: block; max-width: 100%; max-height: calc(100cqh - 17px); }      /* scaled down to fit the cell (room kept for the caption), never up */
   .gcap { align-self: stretch; display: flex; justify-content: space-between; gap: 8px; min-width: 0; height: 14px; line-height: 14px; font-size: 11px; }
   .gt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-strong); color: var(--text); }
   .gd { flex: none; white-space: nowrap; color: var(--muted); }
@@ -429,6 +429,27 @@ function applyClick(state, order, id, mods) {
 function escReduce(state) { const keep = state.sel.includes(state.last) ? state.last : state.sel[state.sel.length - 1]; return { sel: keep ? [keep] : [], last: keep || null, anchor: keep || null }; }
 // Grid for n images: 2 across for 2, 3 across for 3, 2 x 2 for 4, 3 across and 2 down for 5 or 6.
 function gridShape(n) { return n <= 1 ? { cols: 1, rows: 1 } : n === 2 ? { cols: 2, rows: 1 } : n === 3 ? { cols: 3, rows: 1 } : n === 4 ? { cols: 2, rows: 2 } : { cols: 3, rows: 2 }; }
+// Every arrangement worth trying for n images: columns x rows with room for all n and no completely empty column.
+function gridCandidates(n) {
+  const out = [];
+  for (let cols = 1; cols <= n; cols++) { const rows = Math.ceil(n / cols); if ((cols - 1) * rows < n) out.push({ cols, rows }); }
+  return out;
+}
+// The arrangement that shows the smallest-scaled image as large as possible. sizes: [{ w, h }] natural sizes; box: { w, h } the space for the whole grid;
+// opts: gap between cells, chrome (padding + border on each side of a cell), cap (height kept under the image for its caption).
+// An image is never scaled above 100%. Ties (for example when everything fits at 100%) go to the better average scale, then to gridShape(n), then to fewer empty cells.
+function bestGrid(sizes, box, opts) {
+  const n = sizes.length, dflt = gridShape(n);
+  let best = null;
+  for (const c of gridCandidates(n)) {
+    const cw = (box.w - opts.gap * (c.cols - 1)) / c.cols - 2 * opts.chrome, ch = (box.h - opts.gap * (c.rows - 1)) / c.rows - 2 * opts.chrome - opts.cap;
+    const scales = sizes.map((z) => (cw > 0 && ch > 0 && z.w > 0 && z.h > 0 ? Math.min(1, cw / z.w, ch / z.h) : 0));
+    const min = Math.min(...scales), mean = scales.reduce((a, b) => a + b, 0) / n, isDefault = c.cols === dflt.cols && c.rows === dflt.rows, empty = c.cols * c.rows - n;
+    const better = !best || min > best.min + 1e-9 || (Math.abs(min - best.min) <= 1e-9 && (mean > best.mean + 1e-9 || (Math.abs(mean - best.mean) <= 1e-9 && (isDefault && !best.isDefault || (isDefault === best.isDefault && empty < best.empty)))));
+    if (better) best = { cols: c.cols, rows: c.rows, scales, min, mean, isDefault, empty };
+  }
+  return { cols: best.cols, rows: best.rows, scales: best.scales, score: best.min };
+}
 // Oldest first by date added, whatever the list's sort order.
 const gridOrder = (list) => list.slice().sort((a, b) => a.added - b.added || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 // ===== </select-logic> =====
@@ -841,8 +862,17 @@ document.addEventListener("keydown", (e) => {
   e.preventDefault(); const r = escReduce({ sel, last: lastClicked }); select(r.last);
 });
 let shownId = null;                   // the image the stage is showing; selecting it again keeps the same <img> (no reload, no flicker)
-let gridKey = "", gridUrls = [];      // the images the grid shows (ids joined) and their object URLs
-function dropGrid() { gridUrls.forEach((u) => URL.revokeObjectURL(u)); gridUrls = []; gridKey = ""; }
+let gridKey = "", gridUrls = [], gridItems = [];      // the images the grid shows (ids joined), their object URLs, and the items in cell order
+const GRID_OPTS = { gap: 6, chrome: 3, cap: 17 };      // must match the CSS above: cell gap, padding 2 + border 1, caption 14 + 3
+// Chooses columns x rows for the images shown and the room there is, now. Called when the grid is built and whenever the pane changes size.
+function layoutGrid() {
+  const g = $("stage").querySelector(":scope > .pgrid"); if (!g || !gridItems.length) return;
+  const sh = bestGrid(gridItems.map((it) => ({ w: it.width, h: it.height })), { w: g.clientWidth, h: g.clientHeight }, GRID_OPTS);
+  g.style.gridTemplateColumns = "repeat(" + sh.cols + ", minmax(0, 1fr))"; g.style.gridTemplateRows = "repeat(" + sh.rows + ", minmax(0, 1fr))";
+  g.dataset.cols = sh.cols; g.dataset.rows = sh.rows;
+}
+if (window.ResizeObserver) new ResizeObserver(layoutGrid).observe($("stage"));
+function dropGrid() { gridUrls.forEach((u) => URL.revokeObjectURL(u)); gridUrls = []; gridKey = ""; gridItems = []; }
 const cellName = (it) => it.title + ", " + fmtItemDate(it.added);
 function updateCell(it) { const c = $("stage").querySelector('.gcell[data-id="' + it.id + '"]'); if (!c) return; c.setAttribute("aria-label", cellName(it)); c.querySelector(".gt").textContent = it.title; }
 // Two or more selected: a grid of equal cells (oldest first), each image scaled down to fit but never up, with its title and date underneath. Clicking a cell shows that image alone.
@@ -852,10 +882,9 @@ function renderGrid(stage) {
   const key = list.map((x) => x.id).join("|");
   if (key === gridKey && stage.querySelector(":scope > .pgrid")) { refreshButtons(); return; }
   if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
-  shownId = null; dropGrid(); gridKey = key;
-  const sh = gridShape(list.length), g = document.createElement("div");
+  shownId = null; dropGrid(); gridKey = key; gridItems = list;
+  const g = document.createElement("div");
   g.className = "pgrid"; g.setAttribute("role", "group"); g.setAttribute("aria-label", list.length + " selected images");
-  g.style.gridTemplateColumns = "repeat(" + sh.cols + ", minmax(0, 1fr))"; g.style.gridTemplateRows = "repeat(" + sh.rows + ", minmax(0, 1fr))";
   for (const it of list) {
     const c = document.createElement("button"); c.type = "button"; c.className = "gcell"; c.dataset.id = it.id; c.setAttribute("aria-label", cellName(it)); c.title = "Show this image alone";
     const frame = document.createElement("div"); frame.className = "gframe";
@@ -869,7 +898,7 @@ function renderGrid(stage) {
     c.addEventListener("click", () => select(it.id, true));
     g.append(c);
   }
-  stage.replaceChildren(g); stage.className = "grid"; refreshButtons();
+  stage.replaceChildren(g); stage.className = "grid"; layoutGrid(); refreshButtons();
 }
 function renderPreview() {
   const stage = $("stage");
