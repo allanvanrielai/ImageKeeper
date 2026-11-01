@@ -66,11 +66,21 @@ try {
     same(`shift ${mode}: range from the last clicked to this one, in list order`, (await selIds()).slice().sort(), order.slice(1, 5).sort());
     same(`shift ${mode}: the clicked image is the one shown/last`, (await selIds()).at(-1), order[4]);
     await shift(order[0]);
-    same(`shift ${mode}: a second Shift+click gives the range from the last clicked image (replaces the selection)`, (await selIds()).slice().sort(), order.slice(0, 5).sort());
-    same(`shift ${mode}: all in the range are highlighted`, (await lit()).sort(), order.slice(0, 5).sort());
+    same(`shift ${mode}: a second Shift+click gives the range from the same anchor (the plain-clicked image), replacing the selection`, (await selIds()).slice().sort(), order.slice(0, 2).sort());
+    same(`shift ${mode}: all in the range are highlighted`, (await lit()).sort(), order.slice(0, 2).sort());
+    await shift(order[6]);
+    same(`shift ${mode}: and a third one, still from the anchor`, (await selIds()).slice().sort(), order.slice(1, 7).sort());
+    same(`shift ${mode}: Shift+click does not move the anchor`, await page.eval(`anchorId`), order[1]);
   }
   await fresh(); await plain("e"); await ctrl("a"); await ctrl("c"); await shift("g");
-  same("shift after Ctrl clicks: the range starts at the last clicked image (c) and replaces the selection", (await selIds()).slice().sort(), ["a", "c", "d", "f", "g", "h"]);
+  same("shift after Ctrl clicks: the range starts at the last Ctrl-clicked image (c) and replaces the selection", (await selIds()).slice().sort(), ["a", "c", "d", "f", "g", "h"]);
+  // the Explorer example, in the list: click A, Shift+click D, then Shift+click B
+  await fresh(); await plain("e"); await shift("d");
+  same("anchor example: click e, Shift+click d gives e..d", (await selIds()).slice().sort(), ["b", "d", "e", "g"]);
+  await shift("b");
+  same("anchor example: then Shift+click b gives e..b (not d..b)", (await selIds()).slice().sort(), ["b", "e"]);
+  await ctrl("a"); await shift("c");
+  same("Ctrl+click moves the anchor: ...then Ctrl+click a, Shift+click c gives a..c", (await selIds()).slice().sort(), ["a", "c", "f"]);
 
   // ------------------------------------------------------------ limit
   console.log("== limit of 6");
@@ -98,6 +108,11 @@ try {
   await fresh(); await plain("b"); await ctrl("g"); await ctrl("d");
   await page.key("Escape"); await sleep(100);
   same("Esc reduces the selection to the last clicked image", [await selIds(), await lit()], [["d"], ["d"]]);
+  same("after Esc the anchor is the image that stays", await page.eval(`anchorId`), "d");
+  await shift("a");
+  same("after Esc, Shift+click ranges from the image that stayed (d..a)", (await selIds()).slice().sort(), ["a", "d", "h"]);
+  await page.key("Escape"); await sleep(100); await plain("b"); await ctrl("g"); await ctrl("d");
+  await page.key("Escape"); await sleep(100);
   await page.key("Escape"); same("Esc with one image selected changes nothing", await selIds(), ["d"]);
   await plain("b"); await ctrl("g"); await ctrl("d"); await ctrl("g");
   await page.key("Escape"); await sleep(100);
@@ -129,14 +144,18 @@ try {
   await plain("c"); await ctrl("g"); await ctrl("e");
   await page.click("#q"); await page.insert("o"); await sleep(150);          // Golf, Foxtrot, Hotel, Echo, Bravo all contain an o
   same("search that still shows the last clicked image: it stays selected, alone", await selIds(), ["e"]);
+  same("after the search the anchor is the image that stays", await page.eval(`anchorId`), "e");
+  await shift("c"); same("after the search, Shift+click ranges from the image that stayed (e..c in the filtered list: e g d h c)", (await selIds()).slice().sort(), ["c", "d", "e", "g", "h"]);
   await page.eval(`document.getElementById('q').value=''; document.getElementById('q').dispatchEvent(new Event('input'))`);
   await plain("b"); await ctrl("g"); await ctrl("e");                         // b is Work; g and e are General
   await page.click(`#chips .chip[data-key="work"]`); await sleep(150);
   same("label filter that hides the last clicked image: multi-selection ends, first image shown is selected", await selIds(), ["b"]);
+  same("...and that image is the anchor", await page.eval(`anchorId`), "b");
   await page.click(`#chips .chip[data-key="all"]`); await sleep(100);
   await plain("b"); await ctrl("g"); await ctrl("a");                         // a is Work and last clicked
   await page.click(`#chips .chip[data-key="work"]`); await sleep(150);
   same("label filter that still shows the last clicked image: it stays selected, alone", await selIds(), ["a"]);
+  same("after the label filter the anchor is the image that stays", await page.eval(`anchorId`), "a");
   await page.click(`#chips .chip[data-key="all"]`); await sleep(100);
   await plain("e"); await ctrl("g"); await ctrl("b"); await sortBy("title-asc");
   same("changing the sort order keeps the multi-selection", [(await selIds()).slice().sort(), await page.eval(`!!document.querySelector('.pgrid')`)], [["b", "e", "g"], true]);
@@ -167,9 +186,10 @@ try {
     same(`grid ${n}: oldest first (by date added), whatever the list order`, g.ids, expectIds);
     same(`grid ${n}: ${SHAPE[n][0]} across, ${SHAPE[n][1]} down`, [g.cols, g.rows], SHAPE[n]);
     check(`grid ${n}: all cells the same size`, g.sameSize, g);
-    const im = await page.eval(`[...document.querySelectorAll('.pgrid .gcell')].map(c => { const i = c.querySelector('img'), b = i.getBoundingClientRect(), box = c.querySelector('.gimg').getBoundingClientRect(), id = c.dataset.id; return { id, w: b.width, h: b.height, nw: i.naturalWidth, nh: i.naturalHeight, cx: b.x + b.width / 2 - (box.x + box.width / 2), cy: b.y + b.height / 2 - (box.y + box.height / 2), fits: b.width <= box.width + 0.5 && b.height <= box.height + 0.5 }; })`);
+    const im = await page.eval(`[...document.querySelectorAll('.pgrid .gcell')].map(c => { const i = c.querySelector('img'), b = i.getBoundingClientRect(), box = c.querySelector('.gframe').getBoundingClientRect(), blk = c.querySelector('.gblock').getBoundingClientRect(), cp = c.querySelector('.gcap').getBoundingClientRect(), id = c.dataset.id; return { id, w: b.width, h: b.height, nw: i.naturalWidth, nh: i.naturalHeight, cx: b.x + b.width / 2 - (box.x + box.width / 2), cy: blk.y + blk.height / 2 - (box.y + box.height / 2), fits: blk.width <= box.width + 0.5 && blk.height <= box.height + 0.5 && cp.bottom <= box.bottom + 0.5, gap: cp.top - b.bottom, capCx: cp.x + cp.width / 2 - (b.x + b.width / 2) }; })`);
     check(`grid ${n}: no image is shown larger than its real size`, im.every((i) => i.w <= i.nw + 0.5 && i.h <= i.nh + 0.5), im);
-    check(`grid ${n}: every image fits inside its cell and is centred`, im.every((i) => i.fits && Math.abs(i.cx) < 1.5 && Math.abs(i.cy) < 1.5), im);
+    check(`grid ${n}: every image and its caption fit inside the cell; the image-plus-caption block is centred`, im.every((i) => i.fits && Math.abs(i.cx) < 1.5 && Math.abs(i.cy) < 1.5), im);
+    check(`grid ${n}: the caption is directly under its image (gap of a few pixels) and centred on it`, im.every((i) => i.gap >= 0 && i.gap <= 8 && Math.abs(i.capCx) < 1.5), im);
     check(`grid ${n}: images that fit are at real size; larger ones are scaled down keeping their proportions`, im.every((i) => (Math.abs(i.w - i.nw) < 1 && Math.abs(i.h - i.nh) < 1) || (i.w < i.nw && Math.abs(i.w / i.h - i.nw / i.nh) < 0.03)), im);
     const cap = await page.eval(`[...document.querySelectorAll('.pgrid .gcell')].map(c => ({ id: c.dataset.id, t: c.querySelector('.gt').textContent, d: c.querySelector('.gd').textContent, name: c.getAttribute('aria-label'), expect: fmtItemDate(items.get(c.dataset.id).added) }))`);
     check(`grid ${n}: each cell shows its title and date in the list format; accessible name "title, date"`, cap.every((c) => c.t === SEED[c.id][0] && c.d === c.expect && c.name === c.t + ", " + c.expect), cap);
@@ -181,6 +201,14 @@ try {
   const mixed = await page.eval(`[...document.querySelectorAll('.pgrid .gcell img')].map(i => [Math.round(i.getBoundingClientRect().width), Math.round(i.getBoundingClientRect().height), i.naturalWidth, i.naturalHeight])`);
   same("mixed sizes (oldest first: Alpha 1000x700, then Golf 50x50): the 50x50 image stays 50x50", [mixed[1][0], mixed[1][1]], [50, 50]);
   check("mixed sizes: the big one is smaller than 1000 and keeps its 10:7 proportions", mixed[0][0] < 1000 && Math.abs(mixed[0][0] / mixed[0][1] - 10 / 7) < 0.03, mixed);
+  // a small image in a large cell: the caption stays right under the image, the block is centred in the cell
+  await plain("e"); await ctrl("g"); await sleep(150);
+  const small = await page.eval(`[...document.querySelectorAll('.pgrid .gcell')].map(c => { const i = c.querySelector('img').getBoundingClientRect(), cp = c.querySelector('.gcap').getBoundingClientRect(), f = c.querySelector('.gframe').getBoundingClientRect(), blk = c.querySelector('.gblock').getBoundingClientRect(); return { w: Math.round(i.width), h: Math.round(i.height), gap: Math.round(cp.top - i.bottom), cellH: Math.round(f.height), cellW: Math.round(f.width), above: Math.round(blk.top - f.top), below: Math.round(f.bottom - blk.bottom), capLeft: Math.round(cp.left - i.left) }; })`);
+  check("small image, large cell: cell is much bigger than the image", small.every((c) => c.cellH > 300 && c.cellW > 300), small);
+  same("small image, large cell: shown at its real size (120x90 and 50x50, oldest first: Foxtrot, then Golf)", small.map((c) => [c.w, c.h]), [[120, 90], [50, 50]]);
+  check("small image, large cell: the caption is right under the image (gap <= 8px), not at the bottom of the cell", small.every((c) => c.gap >= 0 && c.gap <= 8 && c.below > 100), small);
+  check("small image, large cell: the image-plus-caption block is centred (space above equals space below)", small.every((c) => Math.abs(c.above - c.below) <= 2), small);
+  await plain("e"); await ctrl("b"); await sleep(150);      // back to the Golf + Alpha grid used below
   // header state
   const hm = await hdr();
   same("header with 2+ selected: Save, Discard and the 100% toggle disabled; Save All and Discard All still enabled", [hm.save, hm.discard, hm.fit, hm.saveAll, hm.discardAll], [true, true, true, false, false]);
