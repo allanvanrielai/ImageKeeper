@@ -440,7 +440,7 @@ try {
     await page.eval(`buildRows()`); await sleep(100);
     const sel = `.item[data-id="${o[0]}"]`;
     const measure = () => page.eval(`(()=>{ const li=document.querySelector(${JSON.stringify(sel)}), q=(s)=>li.querySelector(s), r=(e)=>e.getBoundingClientRect(), d=q('.when'), l=q('.label-in'), t=q('.title'), s=q('.s');
-      return { item:r(li).width, title:r(t).width, date:r(d).width, dateClipped:d.scrollWidth>d.clientWidth+0.5, label:r(l).width, sameLine:Math.abs((r(d).top+r(d).height/2)-(r(l).top+r(l).height/2))<4, order:r(l).left>=r(d).right-0.5, inside:r(l).right<=r(s).right+0.5, overflow:s.scrollWidth>s.clientWidth+0.5, ellipsis:getComputedStyle(l).textOverflow, hscroll:document.documentElement.scrollWidth>innerWidth, titleFull:Math.abs(r(t).width-(r(li).width-14))<3, text:d.textContent }; })()`);
+      return { item:r(li).width, title:r(t).width, date:r(d).width, dateClipped:d.scrollWidth>d.clientWidth+0.5, label:r(l).width, sameLine:Math.abs((r(d).top+r(d).height/2)-(r(l).top+r(l).height/2))<4, order:r(l).left>=r(d).right-0.5, inside:r(l).right<=r(s).right+0.5, overflow:s.scrollWidth>s.clientWidth+0.5, ellipsis:getComputedStyle(l).textOverflow, hscroll:document.documentElement.scrollWidth>innerWidth, titleFull:Math.abs(r(t).width-(r(li).width-14-30))<3, noteBeside:(()=>{ const n=q('.note-btn'); if(!n) return false; const nb=r(n), tb=r(t); return nb.left>=tb.right-0.5 && Math.abs((nb.top+nb.height/2)-(tb.top+tb.height/2))<3 && nb.right<=r(li).right; })(), text:d.textContent }; })()`);
     // 1920 x 1080 is the real window; 1280 the laptop case; 821 the narrowest two-column layout; 820 and below one column; 340 and 320 narrow phone-like windows (the header wraps instead of overflowing)
     for (const w of [1920, 1280, 1024, 821, 820, 600, 400, 340, 320]) {
       await page.send("Emulation.setDeviceMetricsOverride", { width: w, height: w >= 1920 ? 1080 : 800, deviceScaleFactor: 1, mobile: false }); await sleep(250);
@@ -448,7 +448,7 @@ try {
       console.log(`   (info) ${w}px: item ${Math.round(g.item)}, title ${Math.round(g.title)}, date ${Math.round(g.date)} ("${g.text}"), label field ${Math.round(g.label)}${g.label < 80 ? "  <-- under 80px" : ""}`);
       check(`layout ${w}: date never truncated`, !g.dateClipped, g);
       check(`layout ${w}: date and label on one line, label right of the date, nothing overflows the row`, g.sameLine && g.order && g.inside && !g.overflow, g);
-      check(`layout ${w}: title line is full width`, g.titleFull, g);
+      check(`layout ${w}: title line is the full width less the note button (26 px + 4 px gap), the button beside the title`, g.titleFull && g.noteBeside, g);
       check(`layout ${w}: label field has an ellipsis; a 30-character label and a long title cause no horizontal scroll`, g.ellipsis === "ellipsis" && !g.hscroll, g);
       if (w >= 1280) check(`layout ${w}: label field is usable (>= 80px) next to the date`, g.label >= 80, g);
     }

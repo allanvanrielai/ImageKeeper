@@ -115,6 +115,19 @@
   #mergeDlg p { margin: 0 0 6px; } #mergeDlg p.lead { font-weight: var(--fw-strong); }
   .s .when { flex: none; white-space: nowrap; }      /* the date is never truncated; the label pill takes what is left */
   .label-in { flex: 1 1 0; min-width: 0; width: 0; font: inherit; font-size: 12px; line-height: 1.3; padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--accent-bg); color: var(--text); text-overflow: ellipsis; }
+  .nrow { display: flex; gap: 4px; align-items: stretch; min-width: 0; }      /* the title and the note button */
+  .nrow .title { flex: 1 1 0; width: auto; min-width: 0; }
+  .note-btn { flex: none; width: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--text); border-radius: var(--radius-field); }
+  .note-btn svg { width: 14px; height: 14px; display: block; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; stroke-linecap: round; }
+  .note-btn.has svg { fill: currentColor; stroke: none; }      /* with a note: a solid page with text lines cut out; without: an outline with a plus */
+  .note-btn[aria-expanded="true"] { border-color: var(--accent); }
+  #notePop { position: fixed; z-index: 25; width: min(300px, calc(100vw - 8px)); max-width: calc(100vw - 8px); overflow: auto; background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius-ctl); padding: 8px; font-size: 13px; }
+  #notePop[hidden], #noteRead[hidden], #noteEdit[hidden] { display: none; }
+  #noteRead { white-space: pre-wrap; overflow-wrap: anywhere; max-height: min(50vh, 240px); overflow-y: auto; }
+  #noteRead.hint { color: var(--muted); font-style: italic; }
+  #noteText { display: block; width: 100%; height: 140px; resize: none; font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: var(--radius-btn); background: var(--field); color: var(--text); }
+  .nfoot { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; font-size: 12px; color: var(--muted); }
+  #noteCount.full { font-weight: var(--fw-strong); color: var(--text); }
   #labelPop { position: fixed; z-index: 20; background: var(--field); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius-ctl); padding: 2px; max-height: 220px; overflow-y: auto; font-size: 13px; }
   #labelPop[hidden] { display: none; }
   #labelPop .opt { padding: 3px 8px; border-radius: 4px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -263,6 +276,13 @@ function themeLabel(isDark) {
   <div class="pbtns"><button id="mgCancel" value="cancel" type="submit" autofocus>Cancel</button><button id="mgOk" value="ok" type="submit" class="btn-save">Merge</button></div>
 </form></dialog>
 <div id="labelPop" role="listbox" aria-label="Label suggestions" hidden></div>
+<div id="notePop" hidden>
+  <div id="noteRead" role="tooltip"></div>
+  <div id="noteEdit" role="dialog" aria-label="Note" hidden>
+    <textarea id="noteText" aria-label="Note" autocomplete="off" spellcheck="false" placeholder="Add a short note"></textarea>
+    <div class="nfoot"><span id="noteMsg" role="status" aria-live="polite"></span><span id="noteCount"></span></div>
+  </div>
+</div>
 
 <script>
 // ===== <label-logic> (no DOM, no storage; unit-tested by Testing/labels-unit.mjs) =====
@@ -453,6 +473,21 @@ function bestGrid(sizes, box, opts) {
 // Oldest first by date added, whatever the list's sort order.
 const gridOrder = (list) => list.slice().sort((a, b) => a.added - b.added || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 // ===== </select-logic> =====
+// ===== <note-logic> (no DOM, no storage; unit-tested by Testing/notes-unit.mjs) =====
+// item.note: an optional plain-text note, at most NOTE_MAX characters. Whitespace only counts as no note; an image without a note has no "note" key at all.
+const NOTE_MAX = 500;
+const cpLen = (s) => { let n = 0; for (const c of s) n++; return n; };                         // characters, not UTF-16 units (an emoji counts once)
+const cpHead = (s, n) => Array.from(s).slice(0, Math.max(0, n)).join("");
+const hasNote = (n) => typeof n === "string" && n.trim() !== "";
+const noteOf = (it) => (it && hasNote(it.note) ? it.note : "");
+// The text after putting `ins` over the selection [start, end) of `cur`, held to NOTE_MAX characters. -> { text, caret, cut } (cut: some of `ins` did not fit)
+function noteInsert(cur, start, end, ins) {
+  const before = cur.slice(0, start), after = cur.slice(end), room = NOTE_MAX - cpLen(before) - cpLen(after), add = cpHead(ins, room);
+  return { text: before + add + after, caret: (before + add).length, cut: cpLen(ins) > Math.max(0, room) };
+}
+// A whole value (for example from an input method) held to NOTE_MAX characters, line ends as "\n". -> { text, cut }
+function noteClamp(raw) { const s = String(raw == null ? "" : raw).replace(/\r\n?/g, "\n"); return cpLen(s) > NOTE_MAX ? { text: cpHead(s, NOTE_MAX), cut: true } : { text: s, cut: false }; }
+// ===== </note-logic> =====
 </script>
 <script>
 "use strict";
@@ -600,9 +635,18 @@ document.addEventListener("paste", (e) => {
 let dragDepth = 0;
 const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes("Files");
 window.addEventListener("dragenter", (e) => { e.preventDefault(); if (hasFiles(e)) { dragDepth++; document.body.classList.add("dragging"); } });
-window.addEventListener("dragover", (e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"; });
+const overNote = (e) => !!(e.target && e.target.closest && e.target.closest("#notePop"));      // the note pop-up: text may be dropped into its box, files are refused
+window.addEventListener("dragover", (e) => {
+  if (overNote(e) && !hasFiles(e)) return;                                       // text dragged into the note box: leave it to the box
+  e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = overNote(e) ? "none" : "copy";
+  if (hasFiles(e) && dragDepth > 0) document.body.classList.toggle("dragging", !overNote(e));      // no "Drop to add" over a place that will not take it
+});
 window.addEventListener("dragleave", (e) => { if (hasFiles(e) && --dragDepth <= 0) { dragDepth = 0; document.body.classList.remove("dragging"); } });
 window.addEventListener("drop", (e) => {
+  if (overNote(e)) {
+    if (!hasFiles(e)) return;                                                    // dropped text: the box takes it (held to the limit by its own handlers)
+    e.preventDefault(); dragDepth = 0; document.body.classList.remove("dragging"); toast("Files cannot be dropped on a note – nothing added"); return;
+  }
   e.preventDefault(); dragDepth = 0; document.body.classList.remove("dragging");
   const files = [...(e.dataTransfer ? e.dataTransfer.files : [])].map(asImage).filter(Boolean);
   if (!files.length) { toast("That is not an image – nothing added"); return; }
@@ -625,7 +669,8 @@ function buildRows() {
     const s = document.createElement("div"); s.className = "s";
     const when = document.createElement("span"); when.className = "when"; when.textContent = fmtItemDate(it.added); s.append(when, labelInput(it));
     if (it.saved) s.append(savedBadge());
-    li.append(t, th, s);
+    const tr = document.createElement("div"); tr.className = "nrow"; tr.append(t, noteButton(it));
+    li.append(tr, th, s);
     li.addEventListener("mousedown", (e) => { if (e.shiftKey || e.ctrlKey || e.metaKey) e.preventDefault(); });      // Ctrl/Shift+click selects, it does not put the cursor in a field or select text
     li.addEventListener("click", (e) => itemClick(e, it));
     li.addEventListener("keydown", (e) => { if (e.target === li && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); itemClick(e, it); } });
@@ -634,7 +679,7 @@ function buildRows() {
     t.addEventListener("keydown", (e) => { if (e.key === "Enter") t.blur(); });
     rows.set(it.id, li); list.append(li);
   }
-  renderChips(); applyFilter(); markActive(); refreshButtons();
+  renderChips(); applyFilter(); markActive(); refreshButtons(); reanchorNote();
 }
 function savedBadge() { const b = document.createElement("span"); b.className = "badge"; b.textContent = "saved"; return b; }
 function applyFilter() {
@@ -647,6 +692,117 @@ function applyFilter() {
   const text = q ? "No images match." : "No images labelled “" + chipLabel() + "”.";
   if (!shown && items.size) { if (!nm) { nm = document.createElement("div"); nm.className = "nomatch"; $("list").append(nm); } nm.textContent = text; } else if (nm) nm.remove();
 }
+
+// ---------- notes: the icon on each image and its pop-ups ----------
+// Hover or keyboard focus on the icon shows the note read-only; a click (or Enter / Space) opens a box to edit it, saved as you type. One pop-up at a time.
+const NOTE_ICON_NONE = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 2h6.5l2.5 2.5V14h-9z"/><path d="M8 6.2v4.6M5.7 8.5h4.6"/></svg>';
+const NOTE_ICON_HAS = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill-rule="evenodd" d="M3.5 2h6.5l2.5 2.5V14h-9zM5.6 6.4h4.8v1.3H5.6zM5.6 8.9h4.8v1.3H5.6zM5.6 11.4h3v1.3h-3z"/></svg>';
+const note = { id: null, mode: null, btn: null, hoverT: 0, saveT: 0, msgT: 0, noFocusPop: false };
+function paintNoteBtn(b, it) {
+  const has = hasNote(it.note);
+  b.classList.toggle("has", has); b.innerHTML = has ? NOTE_ICON_HAS : NOTE_ICON_NONE;
+  b.setAttribute("aria-label", has ? "Edit note (this image has a note)" : "Add note (this image has no note)");
+}
+function noteButton(it) {
+  const b = document.createElement("button"); b.type = "button"; b.className = "note-btn"; b.dataset.id = it.id;
+  b.setAttribute("aria-haspopup", "dialog"); b.setAttribute("aria-expanded", String(note.mode === "edit" && note.id === it.id)); paintNoteBtn(b, it);
+  b.addEventListener("mouseenter", () => { clearTimeout(note.hoverT); openNoteRead(it, b); });
+  b.addEventListener("mouseleave", () => noteHoverLeave());
+  b.addEventListener("focus", () => { if (note.noFocusPop) { note.noFocusPop = false; return; } openNoteRead(it, b); });
+  b.addEventListener("blur", () => { if (note.mode === "read" && note.btn === b) closeNote(false); });
+  b.addEventListener("keydown", (e) => { if (e.key === "Escape" && note.mode === "read") { e.preventDefault(); closeNote(false); } });
+  b.addEventListener("click", (e) => { e.stopPropagation(); if (note.mode === "edit" && note.id === it.id) closeNote(true); else openNoteEdit(it, b); });      // the icon does not change which image is selected
+  return b;
+}
+function noteHoverLeave() { clearTimeout(note.hoverT); note.hoverT = setTimeout(() => { if (note.mode === "read" && !$("notePop").matches(":hover") && document.activeElement !== note.btn) closeNote(false); }, 250); }
+$("notePop").addEventListener("mouseenter", () => clearTimeout(note.hoverT));
+$("notePop").addEventListener("mouseleave", () => { if (note.mode === "read") noteHoverLeave(); });
+function placeNote() {
+  const p = $("notePop"), b = note.btn; if (p.hidden || !b) return;
+  const r = b.getBoundingClientRect(), W = innerWidth, H = innerHeight, m = 4;
+  p.style.maxHeight = (H - 2 * m) + "px"; p.style.left = "0px"; p.style.top = "0px";
+  const w = p.offsetWidth, h = p.offsetHeight;
+  const left = Math.max(m, Math.min(r.right - w, W - w - m));
+  let top = r.bottom + 4; if (top + h > H - m) top = r.top - 4 - h;            // below the icon, or above it when there is no room
+  top = Math.max(m, Math.min(top, H - h - m));
+  p.style.left = left + "px"; p.style.top = top + "px";
+}
+function openNoteRead(it, b) {
+  if (note.mode === "edit" || pop.input) return;                                // an editor or the label suggestions are open: leave them
+  const has = hasNote(it.note), r = $("noteRead");
+  r.textContent = has ? it.note : "Add a note"; r.classList.toggle("hint", !has);
+  $("noteEdit").hidden = true; r.hidden = false; $("notePop").hidden = false;
+  if (note.btn && note.btn !== b) note.btn.removeAttribute("aria-describedby");
+  note.id = it.id; note.mode = "read"; note.btn = b; b.setAttribute("aria-describedby", "noteRead"); placeNote();
+}
+function openNoteEdit(it, b) {
+  clearTimeout(note.hoverT); closePop();
+  if (note.btn && note.btn !== b) { note.btn.removeAttribute("aria-describedby"); note.btn.setAttribute("aria-expanded", "false"); }
+  const ta = $("noteText"); ta.value = noteOf(it); $("noteMsg").textContent = "";
+  $("noteRead").hidden = true; $("noteEdit").hidden = false; $("notePop").hidden = false;
+  note.id = it.id; note.mode = "edit"; note.btn = b; b.removeAttribute("aria-describedby"); b.setAttribute("aria-expanded", "true");
+  countNote(); placeNote(); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+}
+// Closes the pop-up (an open editor first saves what was typed). backToIcon: put the keyboard focus back on the icon.
+function closeNote(backToIcon) {
+  const b = note.btn, id = note.id, was = note.mode;
+  clearTimeout(note.hoverT);
+  if (was === "edit") flushNote(id);
+  $("notePop").hidden = true; $("noteRead").hidden = true; $("noteEdit").hidden = true; $("noteMsg").textContent = "";
+  note.mode = null; note.id = null;
+  if (b) { b.setAttribute("aria-expanded", "false"); b.removeAttribute("aria-describedby"); }
+  if (backToIcon && b && b.isConnected) { note.noFocusPop = true; b.focus(); setTimeout(() => { note.noFocusPop = false; }, 0); }
+}
+function countNote() { const n = cpLen($("noteText").value), c = $("noteCount"); c.textContent = n + " / " + NOTE_MAX; c.classList.toggle("full", n >= NOTE_MAX); }
+function noteMessage(text) { const m = $("noteMsg"); m.textContent = text; clearTimeout(note.msgT); note.msgT = setTimeout(() => { m.textContent = ""; }, 3500); }
+// What is in the box now becomes the image's note (whitespace only = no note), and is stored a moment later.
+function noteChanged() {
+  const it = items.get(note.id); countNote(); if (!it) return;
+  const next = hasNote($("noteText").value) ? $("noteText").value : "";
+  if (next === noteOf(it)) return;
+  if (next) it.note = next; else delete it.note;
+  const b = rows.get(it.id) && rows.get(it.id).querySelector(".note-btn"); if (b) paintNoteBtn(b, it);
+  clearTimeout(note.saveT); note.saveT = setTimeout(() => flushNote(it.id), 400);
+}
+function flushNote(id) { clearTimeout(note.saveT); const it = items.get(id); if (it) persist(it); }
+(function () {
+  const ta = $("noteText");
+  const put = (text, caret) => { ta.value = text; ta.setSelectionRange(caret, caret); noteChanged(); };
+  ta.addEventListener("beforeinput", (e) => {                                  // typing, dropped text: stop at the limit instead of inserting and cutting
+    if (e.inputType === "insertCompositionText" || !/^insert/.test(e.inputType) || e.inputType === "insertFromPaste") return;
+    $("noteMsg").textContent = "";                                              // an earlier "cut" message goes with the next edit
+    const ins = e.data != null ? e.data : e.dataTransfer ? e.dataTransfer.getData("text/plain") : "\n";
+    const r = noteInsert(ta.value, ta.selectionStart, ta.selectionEnd, String(ins).replace(/\r\n?/g, "\n"));
+    if (r.cut) { e.preventDefault(); if (r.text !== ta.value) put(r.text, r.caret); if (e.inputType === "insertFromDrop") noteMessage("Dropped text was cut to " + NOTE_MAX + " characters"); }
+  });
+  ta.addEventListener("paste", (e) => {                                        // plain text only, whatever is on the clipboard; never reaches the image paste
+    e.preventDefault(); e.stopPropagation(); $("noteMsg").textContent = "";
+    const text = e.clipboardData ? e.clipboardData.getData("text/plain") : ""; if (!text) return;
+    const r = noteInsert(ta.value, ta.selectionStart, ta.selectionEnd, text.replace(/\r\n?/g, "\n")); put(r.text, r.caret);
+    if (r.cut) noteMessage("Pasted text was cut to " + NOTE_MAX + " characters");
+  });
+  ta.addEventListener("input", () => { const c = noteClamp(ta.value); if (c.cut) { const at = Math.min(ta.selectionStart, c.text.length); ta.value = c.text; ta.setSelectionRange(at, at); noteMessage("Text was cut to " + NOTE_MAX + " characters"); } noteChanged(); });
+  ta.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeNote(true); }
+    else if (e.key === "Tab") closeNote(true);                                   // focus goes back to the icon, then on to the next control
+  });
+  document.addEventListener("pointerdown", (e) => {                            // a click anywhere else closes the editor (the icon itself toggles it)
+    if (note.mode !== "edit" || e.target.closest("#notePop") || (note.btn && note.btn.contains(e.target))) return;
+    closeNote(false);
+  }, true);
+})();
+// The list was rebuilt: point an open pop-up at the new icon of the same image, or close it if that image is gone.
+function reanchorNote() {
+  if (!note.mode) return;
+  const li = rows.get(note.id), b = li && li.querySelector(".note-btn");
+  if (!b) { closeNote(false); return; }
+  if (note.mode === "read") { closeNote(false); return; }
+  note.btn = b; b.setAttribute("aria-expanded", "true"); placeNote();
+}
+$("list").addEventListener("scroll", () => { if (note.mode === "read") closeNote(false); else placeNote(); });
+addEventListener("resize", placeNote);
+addEventListener("pagehide", () => { if (note.mode === "edit") flushNote(note.id); });
+document.addEventListener("visibilitychange", () => { if (document.hidden && note.mode === "edit") flushNote(note.id); });
 
 // ---------- labels: chips ----------
 const chipEls = new Map();            // key -> chip button
@@ -742,7 +898,7 @@ function labelInput(it) {
   const tip = () => { i.title = "Label: " + i.value; };           // the tooltip carries the full text, which the field may cut with an ellipsis
   tip();
   let justFocused = false;
-  i.addEventListener("focus", () => { justFocused = true; i.select(); openPop(i, it); });
+  i.addEventListener("focus", () => { justFocused = true; i.select(); if (note.mode === "read") closeNote(false); openPop(i, it); });
   i.addEventListener("mouseup", (e) => { if (justFocused) { e.preventDefault(); justFocused = false; } });       // keep the select-all a click would otherwise undo
   i.addEventListener("input", () => { pop.dirty = true; pop.idx = -1; tip(); refreshPop(); });
   i.addEventListener("keydown", (e) => labelKeys(e, i, it));
